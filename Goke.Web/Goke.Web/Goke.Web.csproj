@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <UserSecretsId>aspnet-Goke_Web-13fe57fe-648f-4b0d-980d-ca9eb9f7b7e2</UserSecretsId>
+    <UserSecretsId>aspnet-Goke_Web-91db88a3-d1c2-408f-a0be-7ddebb207f3d</UserSecretsId>
     <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
   </PropertyGroup>
 
