@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="../goke-apps.AppHost/goke-apps.AppHost.csproj" />
+  <Project Path="../goke-apps.ServiceDefaults/goke-apps.ServiceDefaults.csproj" />
+  <Project Path="Goke.Web/Goke.Web.Client/Goke.Web.Client.csproj" />
+  <Project Path="Goke.Web/Goke.Web/Goke.Web.csproj" />
+</Solution>
