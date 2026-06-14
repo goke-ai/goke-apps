@@ -1,4 +1,5 @@
-﻿@implements IDisposable
+﻿@using Goke.Web.Components.Pages.Admin
+@implements IDisposable
 
 @inject NavigationManager NavigationManager
 
@@ -54,7 +55,7 @@
             </li>
 
             <li class="dropdown | ">
-                <a href="#">
+                <a>
                     Account
                     <span>
                         <svg class="dropdown-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24"
@@ -69,6 +70,15 @@
                     </span>
                 </a>
                 <ul>
+                    <AuthorizeView Roles="Administrators" >
+                        <Authorized>
+                            <li>
+                                <NavLink class="nav-link" href="user-roles">
+                                    <span class="bi bi-person-fill-nav-menu" aria-hidden="true"></span> User Roles
+                                </NavLink>
+                            </li>
+                        </Authorized>
+                    </AuthorizeView>
                     <AuthorizeView>
                         <Authorized>
                             <li>

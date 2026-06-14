@@ -303,6 +303,10 @@ th {
         outline: 1px solid green;
     }
 
+    .primary-navigation li:last-child ul {
+        right: 0;
+    }
+
     .primary-navigation li :has(.dropdown-icon) {
         display: inline-flex;
     }
@@ -359,6 +363,10 @@ th {
             opacity: 1;
             transform: translateX(100%);
             transition: transform 0.3s ease, opacity 0.3s ease;
+        }
+
+        .primary-navigation li ul {
+            right: 0;
         }
 
     .menu-icon {
