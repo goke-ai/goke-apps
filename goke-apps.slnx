@@ -1,6 +1,8 @@
 <Solution>
   <Project Path="../goke-apps.AppHost/goke-apps.AppHost.csproj" />
   <Project Path="../goke-apps.ServiceDefaults/goke-apps.ServiceDefaults.csproj" />
+  <Project Path="ConsoleApp1/ConsoleApp1.csproj" Id="157d20e4-dc67-4965-a19d-ed20a3b764c8" />
+  <Project Path="Goke.Core/Goke.Core.csproj" Id="1851f00e-f288-433a-b0f9-658afd56a681" />
   <Project Path="Goke.Data/Goke.Data.csproj" Id="684fb562-be65-4987-8e55-fa8c97f46bb8" />
   <Project Path="Goke.Web.Data.LinuxMigrations/Goke.Web.Data.LinuxMigrations.csproj" Id="bdaebfa9-de92-4783-a426-b734eb32fe9a" />
   <Project Path="Goke.Web.Data.WindowsMigrations/Goke.Web.Data.WindowsMigrations.csproj" Id="54eb101b-674f-4b44-8ccd-7e122ea44396" />

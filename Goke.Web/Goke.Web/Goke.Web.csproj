@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\goke-apps.ServiceDefaults\goke-apps.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\Goke.Core\Goke.Core.csproj" />
     <ProjectReference Include="..\..\Goke.Web.Data.LinuxMigrations\Goke.Web.Data.LinuxMigrations.csproj" />
     <ProjectReference Include="..\..\Goke.Web.Data.WindowsMigrations\Goke.Web.Data.WindowsMigrations.csproj" />
     <ProjectReference Include="..\Goke.Web.Client\Goke.Web.Client.csproj" />
