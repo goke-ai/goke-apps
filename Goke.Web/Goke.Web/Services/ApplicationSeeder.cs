@@ -70,7 +70,10 @@ internal class ApplicationSeeder
             if (user == null)
             {
                 user = new ApplicationUser { UserName = userName, Email = email, EmailConfirmed = true };
-                var result = await userManager.CreateAsync(user, password);
+
+                var passwordToUse = GetPassword(userName, email, password); // Use a default password if none is provided
+
+                var result = await userManager.CreateAsync(user, passwordToUse);
                 if (result.Succeeded)
                 {
                     //result = await userManager.ConfirmEmailAsync(user, await userManager.GenerateEmailConfirmationTokenAsync(user));
@@ -81,6 +84,72 @@ internal class ApplicationSeeder
         }
     }
 
+    private static string GetPassword(string userName, string email, string password)
+    {
+        // If the password is null or empty, generate a default password based on the username and email.
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            password = $"{userName.Split('@')[0]}@{email.Split('@')[1]}#1";
+        }
+
+        // Ensure the password meets the minimum requirements (e.g., length, complexity).
+        if (password.Length < 8)
+        {
+            password = $"{password}#1"; // Append a default suffix to meet length requirements.
+        }
+
+        // You can add more complexity checks here if needed (e.g., uppercase, lowercase, digits, special characters).
+
+
+        return password;
+    }
+
+    public static string GeneratePin(int multiplyby3=4)
+    {
+        Random random = new();
+        // Generate a random 12-digit pin add at least one special character, one uppercase letter, and one lowercase letter.
+        var pin = string.Empty;
+
+        // Generate a random 4-byte array
+        var pinBytes = new byte[multiplyby3];
+
+        // Fill the byte array with random bytes
+        random.NextBytes(pinBytes);
+
+        // generate a (4*3) 12-digit pin using the random bytes
+        // Convert the byte array to a string representation of the pin
+        pin = string.Join("", pinBytes.Select(s => s.ToString("000")));
+
+        //
+        string SPECIAL = "@#$%&+=?<>!/~-";
+        string ALPHABETH = "ABCDEFGHIJKLMNPQRSTUVWXYZ";
+        string LOWERALPHABETH = "abcdefghkmnpqswxyz";
+
+        // insert a special character at a random position in the pin
+        int k = random.Next(SPECIAL.Length);
+        var s = SPECIAL.ElementAt(k).ToString();
+        k = random.Next(1, pin.Length);
+        pin = pin.Insert(k, s);
+
+        // insert an uppercase character at a random position in the pin
+        k = random.Next(ALPHABETH.Length);
+        s = ALPHABETH.ElementAt(k).ToString();
+        k = random.Next(pin.Length);
+        pin = pin.Insert(k, s);
+
+        k = random.Next(ALPHABETH.Length);
+        s = ALPHABETH.ElementAt(k).ToString();
+        k = random.Next(pin.Length);
+        pin = pin.Insert(k, s);
+
+        // insert a lowercase character at a random position in the pin
+        k = random.Next(LOWERALPHABETH.Length);
+        s = LOWERALPHABETH.ElementAt(k).ToString();
+        k = random.Next(pin.Length);
+        pin = pin.Insert(k, s);
+
+        return pin;
+    }
 
     private static async Task AddRolesAsync(IServiceScope scope)
     {
