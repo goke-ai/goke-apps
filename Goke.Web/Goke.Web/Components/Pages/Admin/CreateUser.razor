@@ -1,0 +1,205 @@
+@page "/user-roles/users/create"
+@using System.ComponentModel.DataAnnotations
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Goke.Web.Data
+@using Goke.Web.Services
+@attribute [Authorize(Roles = "Administrators")]
+@inject UserManager<ApplicationUser> UserManager
+@inject RoleManager<IdentityRole> RoleManager
+@inject NavigationManager NavigationManager
+@inject AdminActivityLog ActivityLog
+@inject AdminStatusMessageStore StatusMessageStore
+
+<PageTitle>Create User</PageTitle>
+
+<h1>Create User</h1>
+
+<p>Create a user account, set an initial password, and assign roles.</p>
+
+<div class="mb-4 d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-secondary" href="/user-roles/users">Back to users</a>
+    <a class="btn btn-outline-secondary" href="/user-roles">Back to overview</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-success" role="alert">@statusMessage</div>
+}
+
+@if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <div class="alert alert-danger" role="alert">@errorMessage</div>
+}
+
+<EditForm Model="input" OnValidSubmit="CreateUserAsync">
+    <DataAnnotationsValidator />
+    <ValidationSummary class="text-danger" role="alert" />
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <div class="row g-3">
+                <div class="col-md-6">
+                    <label class="form-label" for="user-name">User name</label>
+                    <InputText id="user-name" @bind-Value="input.UserName" class="form-control" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="email">Email</label>
+                    <InputText id="email" @bind-Value="input.Email" class="form-control" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="password">Password</label>
+                    <InputText id="password" type="password" @bind-Value="input.Password" class="form-control" />
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label" for="confirm-password">Confirm password</label>
+                    <InputText id="confirm-password" type="password" @bind-Value="input.ConfirmPassword" class="form-control" />
+                </div>
+                <div class="col-12">
+                    <div class="form-check">
+                        <InputCheckbox id="email-confirmed" @bind-Value="input.EmailConfirmed" class="form-check-input" />
+                        <label class="form-check-label" for="email-confirmed">Mark email as confirmed</label>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="h5">Assign roles</h2>
+            @if (roles.Count == 0)
+            {
+                <p class="mb-0 text-secondary">No roles available yet.</p>
+            }
+            else
+            {
+                <div class="row g-2">
+                    @foreach (var role in roles)
+                    {
+                        <div class="col-md-6">
+                            <div class="form-check">
+                                <InputCheckbox @bind-Value="@role.IsSelected" class="form-check-input" />
+                                <label class="form-check-label">@role.Name</label>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+
+    <button type="submit" class="btn btn-primary" disabled="@isBusy">Create user</button>
+</EditForm>
+
+@code {
+    private readonly InputModel input = new();
+    private readonly List<RoleSelection> roles = [];
+    private bool isBusy;
+    private string? statusMessage;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        roles.AddRange(await RoleManager.Roles
+            .OrderBy(role => role.Name)
+            .Select(role => new RoleSelection
+            {
+                Id = role.Id,
+                Name = role.Name ?? string.Empty
+            })
+            .ToListAsync());
+    }
+
+    private async Task CreateUserAsync()
+    {
+        statusMessage = null;
+        errorMessage = null;
+
+        if (!string.Equals(input.Password, input.ConfirmPassword, StringComparison.Ordinal))
+        {
+            errorMessage = "The password and confirmation password do not match.";
+            return;
+        }
+
+        isBusy = true;
+
+        try
+        {
+            var user = new ApplicationUser
+            {
+                UserName = input.UserName,
+                Email = input.Email,
+                EmailConfirmed = input.EmailConfirmed
+            };
+
+            var result = await UserManager.CreateAsync(user, input.Password);
+            if (!result.Succeeded)
+            {
+                errorMessage = IdentityErrorFormatter.Format(result);
+                return;
+            }
+
+            var selectedRoles = roles.Where(role => role.IsSelected).Select(role => role.Name).ToList();
+            if (selectedRoles.Count > 0)
+            {
+                var addToRolesResult = await UserManager.AddToRolesAsync(user, selectedRoles);
+                if (!addToRolesResult.Succeeded)
+                {
+                    errorMessage = IdentityErrorFormatter.Format(addToRolesResult);
+                    return;
+                }
+            }
+
+            input.UserName = string.Empty;
+            input.Email = string.Empty;
+            input.Password = string.Empty;
+            input.ConfirmPassword = string.Empty;
+            input.EmailConfirmed = false;
+            foreach (var role in roles)
+            {
+                role.IsSelected = false;
+            }
+
+            var message = $"Created user '{user.UserName}'.";
+            ActivityLog.Add("User created", message);
+            StatusMessageStore.Set(message);
+            NavigationManager.NavigateTo("/user-roles/users");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private sealed class InputModel
+    {
+        [Required]
+        public string UserName { get; set; } = string.Empty;
+
+        [Required]
+        [EmailAddress]
+        public string Email { get; set; } = string.Empty;
+
+        [Required]
+        [DataType(DataType.Password)]
+        public string Password { get; set; } = string.Empty;
+
+        [Required]
+        [DataType(DataType.Password)]
+        public string ConfirmPassword { get; set; } = string.Empty;
+
+        public bool EmailConfirmed { get; set; }
+    }
+
+    private sealed class RoleSelection
+    {
+        public required string Id { get; init; }
+
+        public required string Name { get; init; }
+
+        public bool IsSelected { get; set; }
+    }
+}

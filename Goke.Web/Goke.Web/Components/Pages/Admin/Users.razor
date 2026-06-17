@@ -1,0 +1,205 @@
+@page "/user-roles/users"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Goke.Web.Data
+@using Goke.Web.Services
+@attribute [Authorize(Roles = "Administrators")]
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager NavigationManager
+@inject AdminStatusMessageStore StatusMessageStore
+
+<PageTitle>Users</PageTitle>
+
+<h1>Users</h1>
+
+<p>Browse users, search the directory, and open a user to manage role membership or account access.</p>
+
+<div class="mb-4 d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-secondary" href="/user-roles">Back to overview</a>
+    <a class="btn btn-primary" href="/user-roles/users/create">Create user</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-success" role="alert">@statusMessage</div>
+}
+
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row g-3 align-items-end">
+            <div class="col-md-6">
+                <label class="form-label" for="user-search">Search users</label>
+                <InputText id="user-search" @bind-Value="SearchText" @bind-Value:event="oninput" class="form-control" placeholder="Search by user name or email" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="page-size">Page size</label>
+                <InputSelect id="page-size" @bind-Value="PageSize" class="form-select">
+                    @foreach (var size in pageSizeOptions)
+                    {
+                        <option value="@size">@size</option>
+                    }
+                </InputSelect>
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="sort-order">Sort by</label>
+                <InputSelect id="sort-order" @bind-Value="sortOrder" class="form-select">
+                    <option value="email-asc">Email A-Z</option>
+                    <option value="email-desc">Email Z-A</option>
+                    <option value="username-asc">User name A-Z</option>
+                    <option value="username-desc">User name Z-A</option>
+                </InputSelect>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (PagedUserEntries.Count == 0)
+{
+    <div class="alert alert-info" role="alert">No users found.</div>
+}
+else
+{
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <span class="text-secondary">Showing @PageStartIndex-@PageEndIndex of @FilteredUserEntries.Count users</span>
+        <div class="btn-group" role="group">
+            <button type="button" class="btn btn-outline-secondary" @onclick="PreviousPage" disabled="@(CurrentPage <= 1)">Previous</button>
+            <button type="button" class="btn btn-outline-secondary" @onclick="NextPage" disabled="@(CurrentPage >= TotalPages)">Next</button>
+        </div>
+    </div>
+
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead>
+                <tr>
+                    <th scope="col">User name</th>
+                    <th scope="col">Email</th>
+                    <th scope="col">Email confirmed</th>
+                    <th scope="col">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var userEntry in PagedUserEntries)
+                {
+                    <tr>
+                        <td>@userEntry.UserName</td>
+                        <td>@userEntry.Email</td>
+                        <td>@(userEntry.EmailConfirmed ? "Yes" : "No")</td>
+                        <td>
+                            <a class="btn btn-sm btn-outline-primary" href="/user-roles/users/@userEntry.UserId">Manage roles</a>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+
+    <div class="mt-3 text-secondary">Page @CurrentPage of @TotalPages</div>
+}
+
+@code {
+    private readonly List<UserEntry> userEntries = [];
+    private readonly int[] pageSizeOptions = [10, 25, 50];
+    private string? searchText;
+    private string sortOrder = "email-asc";
+    private int currentPage = 1;
+    private int pageSize = 10;
+    private string? statusMessage;
+
+    private string? SearchText
+    {
+        get => searchText;
+        set
+        {
+            searchText = value;
+            currentPage = 1;
+        }
+    }
+
+    private int PageSize
+    {
+        get => pageSize;
+        set
+        {
+            pageSize = value;
+            currentPage = 1;
+        }
+    }
+
+    private List<UserEntry> FilteredUserEntries
+    {
+        get
+        {
+            IEnumerable<UserEntry> query = userEntries.Where(user =>
+                string.IsNullOrWhiteSpace(searchText)
+                || user.UserName.Contains(searchText, StringComparison.OrdinalIgnoreCase)
+                || user.Email.Contains(searchText, StringComparison.OrdinalIgnoreCase));
+
+            query = sortOrder switch
+            {
+                "email-desc" => query.OrderByDescending(user => user.Email).ThenBy(user => user.UserName),
+                "username-asc" => query.OrderBy(user => user.UserName).ThenBy(user => user.Email),
+                "username-desc" => query.OrderByDescending(user => user.UserName).ThenBy(user => user.Email),
+                _ => query.OrderBy(user => user.Email).ThenBy(user => user.UserName)
+            };
+
+            return query.ToList();
+        }
+    }
+
+    private List<UserEntry> PagedUserEntries => FilteredUserEntries
+        .Skip((CurrentPage - 1) * PageSize)
+        .Take(PageSize)
+        .ToList();
+
+    private int TotalPages => Math.Max(1, (int)Math.Ceiling(FilteredUserEntries.Count / (double)PageSize));
+
+    private int CurrentPage => Math.Min(currentPage, TotalPages);
+
+    private int PageStartIndex => FilteredUserEntries.Count == 0 ? 0 : ((CurrentPage - 1) * PageSize) + 1;
+
+    private int PageEndIndex => Math.Min(CurrentPage * PageSize, FilteredUserEntries.Count);
+
+    protected override async Task OnInitializedAsync()
+    {
+        userEntries.AddRange(await UserManager.Users
+            .Select(user => new UserEntry
+            {
+                UserId = user.Id,
+                UserName = user.UserName ?? "(no username)",
+                Email = user.Email ?? "(no email)",
+                EmailConfirmed = user.EmailConfirmed
+            })
+            .ToListAsync());
+
+        statusMessage = StatusMessageStore.Consume();
+    }
+
+    private void PreviousPage()
+    {
+        if (currentPage > 1)
+        {
+            currentPage--;
+        }
+    }
+
+    private void NextPage()
+    {
+        if (currentPage < TotalPages)
+        {
+            currentPage++;
+        }
+    }
+
+    private sealed class UserEntry
+    {
+        public required string UserId { get; init; }
+
+        public required string UserName { get; init; }
+
+        public required string Email { get; init; }
+
+        public bool EmailConfirmed { get; init; }
+    }
+}
