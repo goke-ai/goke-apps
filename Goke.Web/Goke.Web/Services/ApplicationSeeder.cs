@@ -1,7 +1,11 @@
-﻿using Goke.Core.Extensions;
+﻿using Azure.Core;
+using Goke.Core.Extensions;
 using Goke.Web.Data;
+using Goke.Web.Services;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.UI.Services;
 using Microsoft.EntityFrameworkCore;
+using System.Text.Encodings.Web;
 
 internal class ApplicationSeeder
 {
@@ -57,6 +61,8 @@ internal class ApplicationSeeder
         // Add users to the database if needed.
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
+        var appEmailSender = scope.ServiceProvider.GetRequiredService<ApplicationEmailSender>();
+
         var users = new List<(string UserName, string Email, string Password, string Role)>
         {
             ("admin@ark.com", "admin@ark.com", "admin@ARK#1", "Administrators"),
@@ -73,7 +79,12 @@ internal class ApplicationSeeder
                 user = new ApplicationUser { UserName = userName, Email = email, EmailConfirmed = true };
 
                 var passwordToUse = string.GeneratePassword(8); // Use a default password if none is provided
+                
                 Console.WriteLine($"Creating user: {userName} with password: {passwordToUse}");
+                //await EmailSender.SendConfirmationLinkAsync(user, Input.Email, HtmlEncoder.Default.Encode(callbackUrl));
+                var htmlMessage = $"Hello {userName},<br><br>Your account has been created. Please use the following password to log in: {passwordToUse}<br><br>Please change your password after logging in for the first time.";
+                await appEmailSender.SendEmailAsync(email, $"Create User: {userName}", htmlMessage);
+
 
                 var result = await userManager.CreateAsync(user, passwordToUse);
                 if (result.Succeeded)
