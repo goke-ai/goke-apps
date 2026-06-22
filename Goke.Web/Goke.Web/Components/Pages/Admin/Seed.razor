@@ -1,0 +1,26 @@
+﻿@page "/admin/seed"
+@using Goke.Web.Services
+@using Goke.Web.Data
+@using Microsoft.AspNetCore.Identity
+
+@rendermode InteractiveServer
+
+@inject RoleManager<IdentityRole> RoleManager
+@inject UserManager<ApplicationUser> UserManager
+@inject IConfiguration Configuration
+@inject ApplicationEmailSender ApplicationEmailSender
+
+<PageTitle>Seed</PageTitle>
+
+<h1>Seed</h1>
+
+<button type="button" class="btn btn-primary" @onclick="SeedDatabase">Seed Database</button>
+
+@code {
+    private async Task SeedDatabase()
+    {
+        await ApplicationSeeder.AddRoleAsync(RoleManager, Configuration);
+        await ApplicationSeeder.AddUsersAsync(UserManager, ApplicationEmailSender, Configuration);
+    }
+
+}
