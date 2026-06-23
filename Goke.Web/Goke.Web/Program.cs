@@ -2,6 +2,7 @@ using Goke.Web.Client.Pages;
 using Goke.Web.Components;
 using Goke.Web.Components.Account;
 using Goke.Web.Data;
+using Goke.Web.Models;
 using Goke.Web.Services;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
@@ -88,13 +89,24 @@ builder.Services.AddIdentityCore<ApplicationUser>(options =>
     .AddSignInManager()
     .AddDefaultTokenProviders();
 
-builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
+// Configure options from configuration.
+builder.Services.Configure<EmailSenderOptions>(builder.Configuration.GetSection(EmailSenderOptions.SectionName));
 
+
+// Register the ApplicationEmailSender as a singleton service.
+builder.Services.AddSingleton<ApplicationEmailSender>();
 builder.Services.AddSingleton<AdminActivityLog>();
+builder.Services.AddSingleton<SeedConfirmationService>();
 builder.Services.AddScoped<AdminStatusMessageStore>();
 builder.Services.AddScoped<RoleAdministrationService>();
 
+// Register the IdentityEmailSender as the implementation of IEmailSender<ApplicationUser>.
+//builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
+builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityEmailSender>();
 
+// Add Swagger/OpenAPI support for API documentation and testing.
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
 
@@ -108,6 +120,9 @@ if (app.Environment.IsDevelopment())
 {
     app.UseWebAssemblyDebugging();
     app.UseMigrationsEndPoint();
+
+    app.UseSwagger();
+    app.UseSwaggerUI();
 }
 else
 {

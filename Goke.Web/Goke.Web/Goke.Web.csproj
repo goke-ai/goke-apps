@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\goke-apps.ServiceDefaults\goke-apps.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\..\Goke.Core\Goke.Core.csproj" />
     <ProjectReference Include="..\..\Goke.Web.Data.LinuxMigrations\Goke.Web.Data.LinuxMigrations.csproj" />
     <ProjectReference Include="..\..\Goke.Web.Data.WindowsMigrations\Goke.Web.Data.WindowsMigrations.csproj" />
     <ProjectReference Include="..\Goke.Web.Client\Goke.Web.Client.csproj" />
@@ -23,10 +24,7 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Models\" />
+    <PackageReference Include="Swashbuckle.AspNetCore" Version="10.2.1" />
   </ItemGroup>
 
 </Project>
