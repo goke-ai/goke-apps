@@ -5,7 +5,10 @@
 @using Microsoft.EntityFrameworkCore
 @using Goke.Web.Data
 @using Goke.Web.Services
+
+@rendermode InteractiveServer
 @attribute [Authorize(Roles = "Administrators")]
+
 @inject RoleManager<IdentityRole> RoleManager
 @inject UserManager<ApplicationUser> UserManager
 @inject NavigationManager NavigationManager

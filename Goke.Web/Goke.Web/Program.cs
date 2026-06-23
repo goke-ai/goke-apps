@@ -96,6 +96,7 @@ builder.Services.Configure<EmailSenderOptions>(builder.Configuration.GetSection(
 // Register the ApplicationEmailSender as a singleton service.
 builder.Services.AddSingleton<ApplicationEmailSender>();
 builder.Services.AddSingleton<AdminActivityLog>();
+builder.Services.AddSingleton<SeedConfirmationService>();
 builder.Services.AddScoped<AdminStatusMessageStore>();
 builder.Services.AddScoped<RoleAdministrationService>();
 
