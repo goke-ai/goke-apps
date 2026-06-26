@@ -1,0 +1,422 @@
+@page "/user-roles/roles/{RoleId}"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Goke.WebServer.Data
+@using Goke.WebServer.Services
+
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Administrators")]
+
+@inject RoleManager<IdentityRole> RoleManager
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager NavigationManager
+@inject AdminActivityLog ActivityLog
+@inject AdminStatusMessageStore StatusMessageStore
+
+<PageTitle>Role Details</PageTitle>
+
+<h1>Role Details</h1>
+
+<div class="mb-4 d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-secondary" href="/user-roles/roles">Back to roles</a>
+    <a class="btn btn-outline-secondary" href="/user-roles">Back to overview</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-success" role="alert">@statusMessage</div>
+}
+
+@if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <div class="alert alert-danger" role="alert">@errorMessage</div>
+}
+
+@if (role is null)
+{
+    <div class="alert alert-warning" role="alert">Role not found.</div>
+}
+else
+{
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="h5">Role</h2>
+            <dl class="row mb-0">
+                <dt class="col-sm-3">Name</dt>
+                <dd class="col-sm-9">@role.Name</dd>
+                <dt class="col-sm-3">Members</dt>
+                <dd class="col-sm-9">@members.Count</dd>
+            </dl>
+
+            <EditForm Model="renameRoleInput" OnValidSubmit="RenameRoleAsync" class="mt-3">
+                <DataAnnotationsValidator />
+                <ValidationSummary class="text-danger" role="alert" />
+                <div class="row g-2 align-items-end">
+                    <div class="col-md-6">
+                        <label class="form-label" for="role-name">Rename role</label>
+                        <InputText id="role-name" @bind-Value="renameRoleInput.Name" class="form-control" />
+                    </div>
+                    <div class="col-md-3">
+                        <button type="submit" class="btn btn-outline-primary" disabled="@isBusy">Rename</button>
+                    </div>
+                </div>
+            </EditForm>
+
+            <div class="mt-3 d-flex flex-wrap gap-2">
+                @if (pendingDeleteConfirmation)
+                {
+                    <button type="button" class="btn btn-danger" @onclick="ConfirmDeleteRoleAsync" disabled="@isBusy">Confirm delete</button>
+                    <button type="button" class="btn btn-outline-secondary" @onclick="CancelDeleteRole" disabled="@isBusy">Cancel</button>
+                }
+                else
+                {
+                    <button type="button" class="btn btn-outline-danger" @onclick="RequestDeleteRole" disabled="@(isBusy || members.Count > 0 || string.Equals(role.Name, "Admin", StringComparison.OrdinalIgnoreCase))">Delete role</button>
+                }
+            </div>
+        </div>
+    </div>
+
+    <div class="card mb-4">
+        <div class="card-body">
+            <h2 class="h5">Add user to role</h2>
+            @if (availableUsers.Count == 0)
+            {
+                <p class="mb-0 text-secondary">All users are already members of this role.</p>
+            }
+            else
+            {
+                <div class="input-group">
+                    <InputSelect @bind-Value="selectedUserId" class="form-select" disabled="@isBusy">
+                        <option value="">Select user</option>
+                        @foreach (var user in availableUsers)
+                        {
+                            <option value="@user.UserId">@user.DisplayName</option>
+                        }
+                    </InputSelect>
+                    <button type="button" class="btn btn-primary" @onclick="AddUserAsync" disabled="@isBusy">Add</button>
+                </div>
+            }
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-body">
+            <h2 class="h5">Members</h2>
+            @if (members.Count == 0)
+            {
+                <p class="mb-0 text-secondary">This role has no members.</p>
+            }
+            else
+            {
+                <div class="table-responsive">
+                    <table class="table align-middle mb-0">
+                        <thead>
+                            <tr>
+                                <th scope="col">User</th>
+                                <th scope="col">Email</th>
+                                <th scope="col">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var member in members)
+                            {
+                                <tr>
+                                    <td>@member.UserName</td>
+                                    <td>@member.Email</td>
+                                    <td>
+                                        <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RemoveUserAsync(member.UserId)" disabled="@isBusy">Remove</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter]
+    public string RoleId { get; set; } = string.Empty;
+
+    private IdentityRole? role;
+    private readonly List<UserEntry> members = [];
+    private readonly List<SelectableUserEntry> availableUsers = [];
+    private readonly RenameRoleInputModel renameRoleInput = new();
+    private bool isBusy;
+    private bool pendingDeleteConfirmation;
+    private string? selectedUserId;
+    private string? statusMessage;
+    private string? errorMessage;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        statusMessage = null;
+        errorMessage = null;
+        pendingDeleteConfirmation = false;
+        role = await RoleManager.FindByIdAsync(RoleId);
+        members.Clear();
+        availableUsers.Clear();
+        selectedUserId = null;
+
+        if (role is null || string.IsNullOrWhiteSpace(role.Name))
+        {
+            return;
+        }
+
+        renameRoleInput.Name = role.Name;
+
+        var users = await UserManager.Users
+            .OrderBy(user => user.Email)
+            .ThenBy(user => user.UserName)
+            .ToListAsync();
+
+        foreach (var user in users)
+        {
+            var entry = new UserEntry
+            {
+                UserId = user.Id,
+                UserName = user.UserName ?? "(no username)",
+                Email = user.Email ?? "(no email)"
+            };
+
+            if (await UserManager.IsInRoleAsync(user, role.Name))
+            {
+                members.Add(entry);
+            }
+            else
+            {
+                availableUsers.Add(new SelectableUserEntry
+                {
+                    UserId = entry.UserId,
+                    DisplayName = $"{entry.UserName} ({entry.Email})"
+                });
+            }
+        }
+    }
+
+    private void RequestDeleteRole()
+    {
+        statusMessage = null;
+        errorMessage = null;
+        pendingDeleteConfirmation = true;
+    }
+
+    private void CancelDeleteRole()
+    {
+        pendingDeleteConfirmation = false;
+    }
+
+    private async Task RenameRoleAsync()
+    {
+        statusMessage = null;
+        errorMessage = null;
+
+        if (role is null || string.IsNullOrWhiteSpace(role.Name))
+        {
+            errorMessage = "Role not found.";
+            return;
+        }
+
+        var newName = renameRoleInput.Name?.Trim();
+        if (string.IsNullOrWhiteSpace(newName))
+        {
+            errorMessage = "Enter a role name.";
+            return;
+        }
+
+        if (string.Equals(role.Name, newName, StringComparison.Ordinal))
+        {
+            errorMessage = "Enter a different role name.";
+            return;
+        }
+
+        if (await RoleManager.RoleExistsAsync(newName))
+        {
+            errorMessage = "That role name already exists.";
+            return;
+        }
+
+        isBusy = true;
+
+        try
+        {
+            role.Name = newName;
+            role.NormalizedName = newName.ToUpperInvariant();
+
+            var result = await RoleManager.UpdateAsync(role);
+            if (!result.Succeeded)
+            {
+                errorMessage = IdentityErrorFormatter.Format(result);
+                return;
+            }
+
+            await LoadAsync();
+            statusMessage = $"Renamed role to '{newName}'.";
+            ActivityLog.Add("Role renamed", statusMessage);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task AddUserAsync()
+    {
+        statusMessage = null;
+        errorMessage = null;
+
+        if (role is null || string.IsNullOrWhiteSpace(role.Name))
+        {
+            errorMessage = "Role not found.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(selectedUserId))
+        {
+            errorMessage = "Select a user to add.";
+            return;
+        }
+
+        var user = await UserManager.FindByIdAsync(selectedUserId);
+        if (user is null)
+        {
+            errorMessage = "User not found.";
+            return;
+        }
+
+        isBusy = true;
+
+        try
+        {
+            var result = await UserManager.AddToRoleAsync(user, role.Name);
+            if (!result.Succeeded)
+            {
+                errorMessage = IdentityErrorFormatter.Format(result);
+                return;
+            }
+
+            await LoadAsync();
+            statusMessage = $"Added {user.UserName ?? user.Email ?? user.Id} to role '{role.Name}'.";
+            ActivityLog.Add("User added to role", statusMessage);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task RemoveUserAsync(string userId)
+    {
+        statusMessage = null;
+        errorMessage = null;
+
+        if (role is null || string.IsNullOrWhiteSpace(role.Name))
+        {
+            errorMessage = "Role not found.";
+            return;
+        }
+
+        var user = await UserManager.FindByIdAsync(userId);
+        if (user is null)
+        {
+            errorMessage = "User not found.";
+            return;
+        }
+
+        isBusy = true;
+
+        try
+        {
+            var result = await UserManager.RemoveFromRoleAsync(user, role.Name);
+            if (!result.Succeeded)
+            {
+                errorMessage = IdentityErrorFormatter.Format(result);
+                return;
+            }
+
+            await LoadAsync();
+            statusMessage = $"Removed {user.UserName ?? user.Email ?? user.Id} from role '{role.Name}'.";
+            ActivityLog.Add("User removed from role", statusMessage);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task ConfirmDeleteRoleAsync()
+    {
+        statusMessage = null;
+        errorMessage = null;
+
+        if (role is null || string.IsNullOrWhiteSpace(role.Name))
+        {
+            errorMessage = "Role not found.";
+            return;
+        }
+
+        if (members.Count > 0)
+        {
+            errorMessage = "Remove all members before deleting this role.";
+            return;
+        }
+
+        if (string.Equals(role.Name, "Admin", StringComparison.OrdinalIgnoreCase))
+        {
+            errorMessage = "The Admin role cannot be deleted.";
+            return;
+        }
+
+        isBusy = true;
+
+        try
+        {
+            var roleName = role.Name;
+            var result = await RoleManager.DeleteAsync(role);
+            if (!result.Succeeded)
+            {
+                errorMessage = IdentityErrorFormatter.Format(result);
+                return;
+            }
+
+            var message = $"Deleted role '{roleName}'.";
+            ActivityLog.Add("Role deleted", message);
+            StatusMessageStore.Set(message);
+            NavigationManager.NavigateTo("/user-roles/roles");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private sealed class UserEntry
+    {
+        public required string UserId { get; init; }
+
+        public required string UserName { get; init; }
+
+        public required string Email { get; init; }
+    }
+
+    private sealed class SelectableUserEntry
+    {
+        public required string UserId { get; init; }
+
+        public required string DisplayName { get; init; }
+    }
+
+    private sealed class RenameRoleInputModel
+    {
+        public string Name { get; set; } = string.Empty;
+    }
+}
