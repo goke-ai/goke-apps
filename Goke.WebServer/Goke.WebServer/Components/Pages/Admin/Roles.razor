@@ -1,0 +1,270 @@
+@page "/user-roles/roles"
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Identity
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Components
+@using Goke.WebServer.Data
+@using Goke.WebServer.Services
+
+@rendermode InteractiveServer
+@attribute [Authorize(Roles = "Administrators")]
+
+@inject RoleManager<IdentityRole> RoleManager
+@inject UserManager<ApplicationUser> UserManager
+@inject NavigationManager NavigationManager
+@inject AdminActivityLog ActivityLog
+@inject AdminStatusMessageStore StatusMessageStore
+@inject RoleAdministrationService RoleAdministrationService
+
+<PageTitle>Roles</PageTitle>
+
+<h1>Roles</h1>
+
+<p>Create roles, search roles, delete roles, and open a role to inspect or manage its members.</p>
+
+<div class="mb-4 d-flex flex-wrap gap-2">
+    <a class="btn btn-outline-secondary" href="/user-roles">Back to overview</a>
+</div>
+
+@if (!string.IsNullOrWhiteSpace(statusMessage))
+{
+    <div class="alert alert-success" role="alert">@statusMessage</div>
+}
+
+@if (!string.IsNullOrWhiteSpace(errorMessage))
+{
+    <div class="alert alert-danger" role="alert">@errorMessage</div>
+}
+
+<div class="card mb-4">
+    <div class="card-body">
+        <h2 class="h5">Create role</h2>
+        <div class="input-group">
+            <InputText @bind-Value="newRoleName" class="form-control" placeholder="Role name" />
+            <button type="button" class="btn btn-primary" @onclick="CreateRoleAsync" disabled="@isBusy">Create</button>
+        </div>
+    </div>
+</div>
+
+<div class="card mb-4">
+    <div class="card-body">
+        <div class="row g-3">
+            <div class="col-md-6">
+                <label class="form-label" for="role-search">Search roles</label>
+                <InputText id="role-search" @bind-Value="searchText" @bind-Value:event="oninput" class="form-control" placeholder="Search by role name" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label" for="role-sort-order">Sort by</label>
+                <InputSelect id="role-sort-order" @bind-Value="sortOrder" class="form-select">
+                    <option value="name-asc">Name A-Z</option>
+                    <option value="name-desc">Name Z-A</option>
+                    <option value="members-asc">Fewest members</option>
+                    <option value="members-desc">Most members</option>
+                </InputSelect>
+            </div>
+        </div>
+    </div>
+</div>
+
+@if (FilteredRoles.Count == 0)
+{
+    <div class="alert alert-info" role="alert">No roles found.</div>
+}
+else
+{
+    <div class="table-responsive">
+        <table class="table align-middle">
+            <thead>
+                <tr>
+                    <th scope="col">Role</th>
+                    <th scope="col">Members</th>
+                    <th scope="col">Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var role in SortedFilteredRoles)
+                {
+                    <tr>
+                        <td>@role.Name</td>
+                        <td>@role.MemberCount</td>
+                        <td>
+                            <div class="d-flex flex-wrap gap-2">
+                                <a class="btn btn-sm btn-outline-primary" href="/user-roles/roles/@role.Id">Manage members</a>
+                                @if (pendingRoleDeletionId == role.Id)
+                                {
+                                    <button type="button" class="btn btn-sm btn-danger" @onclick="() => ConfirmDeleteRoleAsync(role)" disabled="@isBusy">Confirm delete</button>
+                                    <button type="button" class="btn btn-sm btn-outline-secondary" @onclick="CancelDeleteRole" disabled="@isBusy">Cancel</button>
+                                }
+                                else
+                                {
+                                    <button type="button" class="btn btn-sm btn-outline-danger" @onclick="() => RequestDeleteRole(role)" disabled="@(isBusy || role.MemberCount > 0 || string.Equals(role.Name, "Admin", StringComparison.OrdinalIgnoreCase))">Delete</button>
+                                }
+                            </div>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+    </div>
+}
+
+@code {
+    private readonly List<RoleEntry> roles = [];
+    private bool isBusy;
+    private string? newRoleName;
+    private string? searchText;
+    private string sortOrder = "name-asc";
+    private string? statusMessage;
+    private string? errorMessage;
+    private string? pendingRoleDeletionId;
+
+    private List<RoleEntry> FilteredRoles => roles
+        .Where(role => string.IsNullOrWhiteSpace(searchText)
+            || role.Name.Contains(searchText, StringComparison.OrdinalIgnoreCase))
+        .ToList();
+
+    private List<RoleEntry> SortedFilteredRoles => RoleEntrySorting.OrderRoles(FilteredRoles, sortOrder);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAsync();
+        statusMessage = StatusMessageStore.Consume();
+    }
+
+    private async Task LoadAsync()
+    {
+        statusMessage = null;
+        errorMessage = null;
+        pendingRoleDeletionId = null;
+        roles.Clear();
+
+        var users = await UserManager.Users.ToListAsync();
+        var roleEntities = await RoleManager.Roles
+            .OrderBy(role => role.Name)
+            .ToListAsync();
+
+        foreach (var role in roleEntities)
+        {
+            var memberCount = 0;
+
+            foreach (var user in users)
+            {
+                if (role.Name is not null && await UserManager.IsInRoleAsync(user, role.Name))
+                {
+                    memberCount++;
+                }
+            }
+
+            roles.Add(new RoleEntry
+            {
+                Id = role.Id,
+                Name = role.Name ?? string.Empty,
+                MemberCount = memberCount
+            });
+        }
+    }
+
+    private async Task CreateRoleAsync()
+    {
+        statusMessage = null;
+        errorMessage = null;
+
+        isBusy = true;
+
+        try
+        {
+            var result = await RoleAdministrationService.CreateRoleAsync(newRoleName);
+            if (!result.Succeeded)
+            {
+                errorMessage = result.ErrorMessage;
+                return;
+            }
+
+            newRoleName = string.Empty;
+            await LoadAsync();
+            statusMessage = $"Created role '{result.RoleName}'.";
+            ActivityLog.Add("Role created", statusMessage);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void RequestDeleteRole(RoleEntry roleEntry)
+    {
+        statusMessage = null;
+        errorMessage = null;
+        pendingRoleDeletionId = roleEntry.Id;
+    }
+
+    private void CancelDeleteRole()
+    {
+        pendingRoleDeletionId = null;
+    }
+
+    private async Task ConfirmDeleteRoleAsync(RoleEntry roleEntry)
+    {
+        statusMessage = null;
+        errorMessage = null;
+
+        if (roleEntry.MemberCount > 0)
+        {
+            errorMessage = "Remove all members before deleting this role.";
+            return;
+        }
+
+        if (string.Equals(roleEntry.Name, "Admin", StringComparison.OrdinalIgnoreCase))
+        {
+            errorMessage = "The Admin role cannot be deleted.";
+            return;
+        }
+
+        var role = await RoleManager.FindByIdAsync(roleEntry.Id);
+        if (role is null)
+        {
+            errorMessage = "Role not found.";
+            return;
+        }
+
+        isBusy = true;
+
+        try
+        {
+            var result = await RoleManager.DeleteAsync(role);
+            if (!result.Succeeded)
+            {
+                errorMessage = IdentityErrorFormatter.Format(result);
+                return;
+            }
+
+            await LoadAsync();
+            statusMessage = $"Deleted role '{roleEntry.Name}'.";
+            ActivityLog.Add("Role deleted", statusMessage);
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private sealed class RoleEntry
+    {
+        public required string Id { get; init; }
+
+        public required string Name { get; init; }
+
+        public int MemberCount { get; init; }
+    }
+
+    private static class RoleEntrySorting
+    {
+        public static List<RoleEntry> OrderRoles(List<RoleEntry> entries, string sortOrder) => sortOrder switch
+        {
+            "name-desc" => entries.OrderByDescending(role => role.Name).ToList(),
+            "members-asc" => entries.OrderBy(role => role.MemberCount).ThenBy(role => role.Name).ToList(),
+            "members-desc" => entries.OrderByDescending(role => role.MemberCount).ThenBy(role => role.Name).ToList(),
+            _ => entries.OrderBy(role => role.Name).ToList()
+        };
+    }
+}
