@@ -11,15 +11,12 @@
   <Project Path="Goke.Hyb/Goke.Hyb.Shared/Goke.Hyb.Shared.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>
-  <Project Path="Goke.Hyb/Goke.Hyb.Web.Client/Goke.Hyb.Web.Client.csproj">
-    <Build Solution="Debug|*" Project="false" />
-  </Project>
-  <Project Path="Goke.Hyb/Goke.Hyb.Web/Goke.Hyb.Web.csproj">
-    <Build Solution="Debug|*" Project="false" />
-  </Project>
+  <Project Path="Goke.Hyb/Goke.Hyb.Web.Client/Goke.Hyb.Web.Client.csproj" />
+  <Project Path="Goke.Hyb/Goke.Hyb.Web/Goke.Hyb.Web.csproj" />
   <Project Path="Goke.Hyb/Goke.Hyb/Goke.Hyb.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>
+  <Project Path="Goke.Services/Goke.Services.csproj" Id="207eb0ca-d3b0-438f-bc2f-9df418ecbbee" />
   <Project Path="Goke.SharedUI/Goke.SharedUI.csproj">
     <Build Solution="Debug|*" Project="false" />
   </Project>

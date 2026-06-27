@@ -2,6 +2,7 @@ using Goke.Core.Interfaces;
 using Goke.Hyb.Web.Components;
 using Goke.Hyb.Web.Endpoints;
 using Goke.Hyb.Web.Services;
+using Goke.Services;
 using Microsoft.AspNetCore.Authentication.Cookies;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -28,12 +29,26 @@ builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationSc
 //
 builder.Services.AddHttpContextAccessor();
 
-// Add httpclient service for API calls
-builder.Services.AddHttpClient("BackendApi", client =>
-    client.BaseAddress = new Uri(builder.Configuration["Backend:BaseUrl"] ?? throw new InvalidOperationException("API base URL is not configured")));
+// Add configuration for the backend API options
+builder.Services.Configure<BackendApiOptions>(builder.Configuration.GetSection(BackendApiOptions.SectionName));
+builder.Services.AddSingleton<BackendApiEndpoints>();
 
-builder.Services.AddHttpClient<RemoteAuthenticationService>(client =>
-    client.BaseAddress = new Uri(builder.Configuration["Backend:BaseUrl"] ?? throw new InvalidOperationException("API base URL is not configured")));
+// Add httpclient service for API calls
+builder.Services.AddHttpClient(BackendApiEndpoints.ClientName, (sp, client) => {
+    var endpoint = sp.GetRequiredService<BackendApiEndpoints>();
+    client.BaseAddress = endpoint.BaseUri ?? throw new InvalidOperationException("API base URL is not configured");
+})
+.ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler());
+
+// Add httpclient service for API calls
+//builder.Services.AddHttpClient("BackendApi", client =>
+//client.BaseAddress = new Uri(builder.Configuration["Backend:BaseUrl"] ?? throw new InvalidOperationException("API base URL is not configured")));
+
+builder.Services.AddHttpClient<AuthApiClient>((sp, client) => {
+    var endpoint = sp.GetRequiredService<BackendApiEndpoints>();
+    client.BaseAddress = endpoint.BaseUri ?? throw new InvalidOperationException("API base URL is not configured");
+});
+
 
 //-
 

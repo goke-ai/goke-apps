@@ -4,15 +4,15 @@ using Microsoft.Extensions.Logging;
 using Goke.Core.Models;
 using System.Net.Http.Headers;
 
-namespace Goke.Hyb.Web.Services;
+namespace Goke.Services;
 
-public sealed class RemoteAuthenticationService(HttpClient httpClient, ILogger<RemoteAuthenticationService> logger)
+public sealed class AuthApiClient(HttpClient httpClient, BackendApiEndpoints backend, ILogger<AuthApiClient> logger)
 {
     public async Task<LoginResponse?> LoginAsync(string email, string password, CancellationToken cancellationToken = default)
     {
         try
         {
-            using var response = await httpClient.PostAsJsonAsync("identity/login", new LoginRequest
+            using var response = await httpClient.PostAsJsonAsync(backend.LoginUri, new LoginRequest
             {
                 Email = email,
                 Password = password
@@ -38,7 +38,7 @@ public sealed class RemoteAuthenticationService(HttpClient httpClient, ILogger<R
     {
         try
         {
-            using var response = await httpClient.PostAsJsonAsync("identity/register", new LoginRequest
+            using var response = await httpClient.PostAsJsonAsync(backend.RegisterUri, new LoginRequest
             {
                 Email = email,
                 Password = password
@@ -64,7 +64,7 @@ public sealed class RemoteAuthenticationService(HttpClient httpClient, ILogger<R
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, "identity/me");
+            using var request = new HttpRequestMessage(HttpMethod.Get, backend.MeUri);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
 
             using var response = await httpClient.SendAsync(request, cancellationToken);
@@ -81,6 +81,49 @@ public sealed class RemoteAuthenticationService(HttpClient httpClient, ILogger<R
         catch (HttpRequestException ex)
         {
             logger.LogError(ex, "Fetching current user failed.");
+            return null;
+        }
+    }
+
+    // Additional methods for logout, token refresh, etc., can be added here as needed.
+    public async Task<bool> LogoutAsync(string accessToken, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, backend.LogoutUri);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Remote logout failed with status code {StatusCode}.", response.StatusCode);
+                return false;
+            }
+            return true;
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "Remote logout request failed.");
+            return false;
+        }
+    }
+
+    public async Task<LoginResponse?> RefreshTokenAsync(string refreshToken, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var response = await httpClient.PostAsJsonAsync(backend.RefreshUri, new { RefreshToken = refreshToken }, cancellationToken);
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Remote token refresh failed with status code {StatusCode}.", response.StatusCode);
+                return null;
+            }
+            var result = await response.Content.ReadFromJsonAsync<LoginResponse>(cancellationToken: cancellationToken);
+            // Handle the new access token and refresh token as needed.
+            return result;
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "Remote token refresh request failed.");
             return null;
         }
     }
@@ -136,4 +179,6 @@ public sealed class RemoteAuthenticationService(HttpClient httpClient, ILogger<R
 
         return content;
     }
+
+    
 }
