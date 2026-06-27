@@ -11,6 +11,7 @@
     <ProjectReference Include="..\..\Goke.SharedUI\Goke.SharedUI.csproj" />
     <ProjectReference Include="..\Goke.Hyb.Web.Client\Goke.Hyb.Web.Client.csproj" />
     <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="10.0.9" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.19.1" />
   </ItemGroup>
 
 </Project>

@@ -68,6 +68,13 @@
                     </div>
                 </Authorized>
             </AuthorizeView>
+            <AuthorizeView Roles="Administrators">
+                <div class="nav-item px-3">
+                    <NavLink class="nav-link" href="admin">
+                        <span class="bi bi-shield-lock-fill-nav-menu" aria-hidden="true"></span> Admin
+                    </NavLink>
+                </div>
+            </AuthorizeView>
         </CascadingAuthenticationState>
     </nav>
 </div>

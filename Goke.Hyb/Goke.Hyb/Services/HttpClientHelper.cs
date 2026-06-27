@@ -30,7 +30,9 @@ internal class HttpClientHelper
     public static string RegisterUrl => $"{BaseUrl}identity/register";
     public static string LoginUrl => $"{BaseUrl}identity/login";
     public static string RefreshUrl => $"{BaseUrl}identity/refresh";
+    public static string MeUrl => $"{BaseUrl}identity/me";
     public static string WeatherUrl => $"{BaseUrl}api/weather";
+
 
     public static HttpClient GetHttpClient()
     {

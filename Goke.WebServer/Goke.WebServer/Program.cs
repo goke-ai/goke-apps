@@ -1,5 +1,6 @@
 using Goke.Core.Interfaces;
 using Goke.Core.Models;
+using Goke.Core.Models.Goke.Core.Models;
 using Goke.WebServer.Client.Pages;
 using Goke.WebServer.Components;
 using Goke.WebServer.Components.Account;
@@ -8,6 +9,7 @@ using Goke.WebServer.Services;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using System.Security.Claims;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -116,6 +118,70 @@ app.MapRazorComponents<App>()
 
 // Needed for external clients to log in
 app.MapGroup("/identity").MapIdentityApi<ApplicationUser>();
+
+app.MapGet("/identity/me", async (
+    ClaimsPrincipal principal,
+    UserManager<ApplicationUser> userManager,
+    RoleManager<IdentityRole> roleManager) =>
+{
+    var user = await userManager.GetUserAsync(principal);
+    if (user is null)
+    {
+        return Results.Unauthorized();
+    }
+
+    var roles = await userManager.GetRolesAsync(user);
+    var userClaims = await userManager.GetClaimsAsync(user);
+
+    var allClaims = new List<AuthenticatedUserClaimResponse>();
+
+    // Add user claims
+    foreach (var claim in userClaims)
+    {
+        if (!string.IsNullOrWhiteSpace(claim.Type) && !string.IsNullOrWhiteSpace(claim.Value))
+        {
+            allClaims.Add(new AuthenticatedUserClaimResponse
+            {
+                Type = claim.Type,
+                Value = claim.Value
+            });
+        }
+    }
+
+    // Add role claims
+    foreach (var roleName in roles)
+    {
+        // Get the role by name
+        var role = await roleManager.FindByNameAsync(roleName);
+        if (role is null)
+        {
+            continue;
+        }
+
+        // Get the claims associated with the role
+        var roleClaims = await roleManager.GetClaimsAsync(role);
+        foreach (var claim in roleClaims)
+        {
+            if (!string.IsNullOrWhiteSpace(claim.Type) && !string.IsNullOrWhiteSpace(claim.Value))
+            {
+                allClaims.Add(new AuthenticatedUserClaimResponse
+                {
+                    Type = claim.Type,
+                    Value = claim.Value
+                });
+            }
+        }
+    }
+
+    return Results.Ok(new AuthenticatedUserResponse
+    {
+        UserId = user.Id,
+        Email = user.Email ?? string.Empty,
+        Name = user.UserName ?? user.Email ?? string.Empty,
+        Roles = [.. roles],
+        Claims = [.. allClaims.DistinctBy(c => new { c.Type, c.Value })]
+    });
+}).RequireAuthorization();
 
 // Add additional endpoints required by the Identity /Account Razor components.
 app.MapAdditionalIdentityEndpoints();

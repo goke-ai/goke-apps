@@ -2,6 +2,7 @@ using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Goke.Core.Models;
+using System.Net.Http.Headers;
 
 namespace Goke.Hyb.Web.Services;
 
@@ -56,6 +57,31 @@ public sealed class RemoteAuthenticationService(HttpClient httpClient, ILogger<R
         {
             logger.LogError(ex, "Remote registration request failed for {Email}.", email);
             return "Server error.";
+        }
+    }
+
+    public async Task<AuthenticatedUserResponse?> GetCurrentUserAsync(string accessToken, CancellationToken cancellationToken = default)
+    {
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, "identity/me");
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+            using var response = await httpClient.SendAsync(request, cancellationToken);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                logger.LogWarning("Fetching current user failed with status code {StatusCode}.", response.StatusCode);
+                return null;
+            }
+
+            var result = await response.Content.ReadFromJsonAsync<AuthenticatedUserResponse>(cancellationToken: cancellationToken);
+            return result;
+        }
+        catch (HttpRequestException ex)
+        {
+            logger.LogError(ex, "Fetching current user failed.");
+            return null;
         }
     }
 
