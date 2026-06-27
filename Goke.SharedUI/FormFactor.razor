@@ -1,0 +1,12 @@
+﻿@using Goke.Core.Interfaces
+
+@inject IFormFactor FormFactorService
+
+<div>
+    Welcome to your new app running on <em>@factor</em> using <em>@platform</em>.
+</div>
+
+@code {
+    private string factor => FormFactorService.GetFormFactor();
+    private string platform => FormFactorService.GetPlatform();
+}

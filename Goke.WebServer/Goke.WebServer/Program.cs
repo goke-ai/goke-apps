@@ -1,3 +1,4 @@
+using Goke.Core.Interfaces;
 using Goke.Core.Models;
 using Goke.WebServer.Client.Pages;
 using Goke.WebServer.Components;
@@ -70,6 +71,7 @@ builder.Services.AddSingleton<SeedConfirmationService>();
 builder.Services.AddSingleton<AdminActivityLog>();
 builder.Services.AddScoped<AdminStatusMessageStore>();
 builder.Services.AddScoped<RoleAdministrationService>();
+builder.Services.AddSingleton<IFormFactor, FormFactor>();
 
 // Register the IdentityEmailSender as the implementation of IEmailSender<ApplicationUser>.
 //builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();

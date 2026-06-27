@@ -1,0 +1,23 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.0.0">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UserSecretsId>314cafe4-0bee-4c3a-b80d-dc41b188fb0e</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MessagePack" Version="3.1.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Goke.Hyb\Goke.Hyb.Web\Goke.Hyb.Web.csproj" />
+    <ProjectReference Include="..\Goke.Hyb\Goke.Hyb\Goke.Hyb.csproj">
+      <SetTargetFramework>TargetFramework=net10.0</SetTargetFramework>
+    </ProjectReference>
+    <ProjectReference Include="..\Goke.WebServer\Goke.WebServer\Goke.WebServer.csproj" />
+  </ItemGroup>
+
+</Project>

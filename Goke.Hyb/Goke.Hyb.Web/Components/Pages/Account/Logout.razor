@@ -1,0 +1,18 @@
+﻿@page "/logout"
+
+@attribute [ExcludeFromInteractiveRouting]
+
+<div class="loader loader-bouncing"><span>Redirecting...</span></div>
+
+<form id="logoutForm" method="post" action="/account/logout">
+    <AntiforgeryToken />
+    <input type="hidden" name="ReturnUrl" value="/" />
+    <button type="submit" class="nav-link btn btn-link border-0 w-100 text-start">
+        <span class="bi bi-box-arrow-right" aria-hidden="true"></span> Log out
+    </button>
+</form>
+
+
+<script>
+    document.getElementById('logoutForm')?.requestSubmit();
+</script>
