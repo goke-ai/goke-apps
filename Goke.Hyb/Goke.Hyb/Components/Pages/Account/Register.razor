@@ -1,0 +1,77 @@
+@page "/register"
+@using Goke.Core.Enums
+@using Goke.Core.Models
+@using Goke.Hyb.Services
+@inject NavigationManager Navigation
+@inject MauiAuthenticationStateProvider AuthStateProvider
+
+<PageTitle>Register</PageTitle>
+
+<h1>Register</h1>
+<div class="row">
+    <div class="col-lg-6">
+        <section>
+            <EditForm Model="RegisterModel" OnValidSubmit="RegisterUser" FormName="register">
+                <DataAnnotationsValidator />
+                <p>Create a new account.</p>
+                <hr />
+                <ValidationSummary class="text-danger" role="alert" />
+                <div class="alert alert-info" role="alert" hidden="@statusHidden">
+                    @(AuthStateProvider.LoginFailureMessage is { Length: > 0 } failureMessage
+                        ? failureMessage
+                        : AuthStateProvider.StatusMessage)
+                </div>
+                <div class="form-floating mb-3">
+                    <InputText @bind-Value="RegisterModel.Email" id="Input.Email" class="form-control" autocomplete="username" aria-required="true" placeholder="name@example.com" />
+                    <label for="Input.Email" class="form-label">Email</label>
+                    <ValidationMessage For="() => RegisterModel.Email" class="text-danger" />
+                </div>
+                <div class="form-floating mb-3">
+                    <InputText type="password" @bind-Value="RegisterModel.Password" id="Input.Password" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
+                    <label for="Input.Password" class="form-label">Password</label>
+                    <ValidationMessage For="() => RegisterModel.Password" class="text-danger" />
+                </div>
+                <div class="form-floating mb-3">
+                    <InputText type="password" @bind-Value="RegisterModel.ConfirmPassword" id="Input.ConfirmPassword" class="form-control" autocomplete="new-password" aria-required="true" placeholder="password" />
+                    <label for="Input.ConfirmPassword" class="form-label">Confirm Password</label>
+                    <ValidationMessage For="() => RegisterModel.ConfirmPassword" class="text-danger" />
+                </div>
+                <div class="d-grid gap-2">
+                    <button type="submit" class="w-100 btn btn-lg btn-primary">Register</button>
+                    <button type="button" class="w-100 btn btn-outline-secondary" @onclick="GoToLogin">Back to login</button>
+                </div>
+            </EditForm>
+        </section>
+    </div>
+</div>
+
+@code {
+    private RegisterRequest RegisterModel { get; set; } = new();
+    private bool statusHidden = true;
+
+    protected override void OnInitialized()
+    {
+        if (AuthStateProvider.LoginStatus == LoginStatus.Failed || !string.IsNullOrWhiteSpace(AuthStateProvider.StatusMessage))
+        {
+            statusHidden = false;
+        }
+    }
+
+    private async Task RegisterUser()
+    {
+        var result = await AuthStateProvider.RegisterAsync(RegisterModel);
+        statusHidden = false;
+
+        if (!result.Succeeded)
+        {
+            return;
+        }
+
+        RegisterModel = new RegisterRequest();
+    }
+
+    private void GoToLogin()
+    {
+        Navigation.NavigateTo("login");
+    }
+}
