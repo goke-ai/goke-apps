@@ -9,6 +9,8 @@ using System.Text;
 using Goke.Core.Enums;
 using Goke.Core.Interfaces;
 using Goke.Core.Models;
+using Goke.Services;
+using Goke.Services.Authentication;
 
 namespace Goke.Hyb.Services;
 
@@ -17,14 +19,14 @@ namespace Goke.Hyb.Services;
 /// The class handles user login, logout, and token validation, including refreshing tokens when they are close to expiration.
 /// It uses secure storage to save and retrieve tokens, ensuring that users do not need to log in every time.
 /// </summary>
-public class MauiAuthenticationStateProvider(ILogger<MauiAuthenticationStateProvider> logger) : AuthenticationStateProvider, IAuthenticationService
+public class MauiAuthenticationStateProvider(AuthApiClient authApiClient, ILogger<MauiAuthenticationStateProvider> logger) : AuthenticationStateProvider, IAuthenticationService
 {
     //TODO: Place this in AppSettings or Client config file
     private const string AuthenticationType = "Custom authentication";
     private const int TokenExpirationBuffer = 30; //minutes
 
-    private static ClaimsPrincipal defaultUser = new ClaimsPrincipal(new ClaimsIdentity());
-    private static Task<AuthenticationState> defaultAuthState = Task.FromResult(new AuthenticationState(defaultUser));
+    private static readonly ClaimsPrincipal defaultUser = new(new ClaimsIdentity());
+    private static readonly Task<AuthenticationState> defaultAuthState = Task.FromResult(new AuthenticationState(defaultUser));
 
     private bool persistTokenToSecureStorage; 
     private bool refreshInProgress = false;
@@ -38,6 +40,8 @@ public class MauiAuthenticationStateProvider(ILogger<MauiAuthenticationStateProv
 
     private Task<AuthenticationState> currentAuthState = defaultAuthState;
     private AccessTokenInfo? accessToken;
+    private readonly AuthApiClient client = authApiClient;
+    private readonly ILogger<MauiAuthenticationStateProvider> logger = logger;
 
     public override Task<AuthenticationState> GetAuthenticationStateAsync()
     {
@@ -74,25 +78,14 @@ public class MauiAuthenticationStateProvider(ILogger<MauiAuthenticationStateProv
     }
 
 
-    private async Task<AuthenticatedUserResponse?> GetAuthenticatedUserAsync(string bearerToken)
+    private async Task<AuthenticatedUserResponse?> GetAuthenticatedUserAsync(string accessToken)
     {
-        if (string.IsNullOrWhiteSpace(bearerToken))
+        if (string.IsNullOrWhiteSpace(accessToken))
         {
             return null;
         }
 
-        using var httpClient = HttpClientHelper.GetHttpClient();
-        httpClient.DefaultRequestHeaders.Authorization =
-            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", bearerToken);
-
-        using var response = await httpClient.GetAsync(HttpClientHelper.MeUrl);
-        if (!response.IsSuccessStatusCode)
-        {
-            logger.LogWarning("Unable to load authenticated user details. Status code: {StatusCode}", response.StatusCode);
-            return null;
-        }
-
-        return await response.Content.ReadFromJsonAsync<AuthenticatedUserResponse>();
+        return await client.GetCurrentUserAsync(accessToken);
     }
 
     private void ClearTokenState()
@@ -128,21 +121,13 @@ public class MauiAuthenticationStateProvider(ILogger<MauiAuthenticationStateProv
 
         try
         {
-            var httpClient = HttpClientHelper.GetHttpClient();
-            var registerData = new
-            {
-                email = registerRequest.Email,
-                password = registerRequest.Password
-            };
-
-            using var response = await httpClient.PostAsJsonAsync(HttpClientHelper.RegisterUrl, registerData);
-            if (response.IsSuccessStatusCode)
+            var error = await client.RegisterAsync(registerRequest.Email, registerRequest.Password);
+            if(string.IsNullOrWhiteSpace(error))
             {
                 StatusMessage = "Registration succeeded. Check your email to confirm your account before signing in.";
                 return AuthenticationResult.Success();
             }
 
-            var error = await response.Content.ReadAsStringAsync();
             LoginStatus = LoginStatus.Failed;
             LoginFailureMessage = string.IsNullOrWhiteSpace(error)
                 ? "Registration failed. Please try again."
@@ -161,16 +146,17 @@ public class MauiAuthenticationStateProvider(ILogger<MauiAuthenticationStateProv
 
     public Task LogInAsync(LoginRequest loginModel)
     {
-        currentAuthState = LogInAsyncCore(loginModel);
-        NotifyAuthenticationStateChanged(currentAuthState);
-
-        return currentAuthState;
-
         async Task<AuthenticationState> LogInAsyncCore(LoginRequest loginModel)
         {
             var user = await LoginWithProviderAsync(loginModel);
             return new AuthenticationState(user);
         }
+
+        currentAuthState = LogInAsyncCore(loginModel);
+        NotifyAuthenticationStateChanged(currentAuthState);
+
+        return currentAuthState;
+
     }
 
     private async Task<ClaimsPrincipal> LoginWithProviderAsync(LoginRequest loginModel)
@@ -183,19 +169,14 @@ public class MauiAuthenticationStateProvider(ILogger<MauiAuthenticationStateProv
 
         try
         {
-            var httpClient = HttpClientHelper.GetHttpClient();
-            var loginData = new { loginModel.Email, loginModel.Password };
-            using var response = await httpClient.PostAsJsonAsync(HttpClientHelper.LoginUrl, loginData);
-
-            LoginStatus = response.IsSuccessStatusCode ? LoginStatus.Success : LoginStatus.Failed;
-
-            if (LoginStatus != LoginStatus.Success)
+            var token = await client.LoginAsync(loginModel.Email, loginModel.Password);
+            if(token is null)
             {
+                LoginStatus = LoginStatus.Failed;
                 LoginFailureMessage = "Invalid Email or Password. Please try again.";
                 return authenticatedUser;
             }
 
-            var token = await response.Content.ReadAsStringAsync();
             accessToken = persistTokenToSecureStorage
                 ? await TokenStorage.SaveTokenToSecureStorageAsync(token, loginModel.Email)
                 : TokenStorage.DeserializeToken(token, loginModel.Email);
@@ -217,7 +198,7 @@ public class MauiAuthenticationStateProvider(ILogger<MauiAuthenticationStateProv
                 return authenticatedUser;
             }
 
-            authenticatedUser = CreateAuthenticatedUser(userInfo);
+            authenticatedUser = MauiAuthenticationStateProvider.CreateAuthenticatedUser(userInfo, loginModel.Email);
         }
         catch (Exception ex)
         {
@@ -248,7 +229,7 @@ public class MauiAuthenticationStateProvider(ILogger<MauiAuthenticationStateProv
         }
 
         LoginStatus = LoginStatus.Success;
-        return new AuthenticationState(CreateAuthenticatedUser(userInfo));
+        return new AuthenticationState(MauiAuthenticationStateProvider.CreateAuthenticatedUser(userInfo, accessToken.Email));
     }
 
     private async Task<bool> UpdateAndValidateAccessTokenAsync()
@@ -282,8 +263,6 @@ public class MauiAuthenticationStateProvider(ILogger<MauiAuthenticationStateProv
         }
     }
 
-
-
     private async Task RefreshAuthenticationStateAsync()
     {
         if (accessToken is null)
@@ -297,7 +276,7 @@ public class MauiAuthenticationStateProvider(ILogger<MauiAuthenticationStateProv
             return;
         }
 
-        currentAuthState = Task.FromResult(new AuthenticationState(CreateAuthenticatedUser(userInfo)));
+        currentAuthState = Task.FromResult(new AuthenticationState(MauiAuthenticationStateProvider.CreateAuthenticatedUser(userInfo, accessToken.Email)));
         NotifyAuthenticationStateChanged(currentAuthState);
     }
 
@@ -320,17 +299,18 @@ public class MauiAuthenticationStateProvider(ILogger<MauiAuthenticationStateProv
 
             refreshInProgress = true;
 
-            using var httpClient = HttpClientHelper.GetHttpClient();
-            var refreshData = new { refreshToken };
-            using var response = await httpClient.PostAsJsonAsync(HttpClientHelper.RefreshUrl, refreshData);
-
-            if (!response.IsSuccessStatusCode)
+            var token = await client.RefreshTokenAsync(refreshToken);
+            if (token is not null)
             {
+                logger.LogInformation("Access token refreshed successfully.");
+            }
+            else
+            {
+                logger.LogWarning("Failed to refresh access token.");
                 LogoutCore("Your session expired. Sign in again.");
                 return false;
             }
 
-            var token = await response.Content.ReadAsStringAsync();
             accessToken = persistTokenToSecureStorage
                 ? await TokenStorage.SaveTokenToSecureStorageAsync(token, email)
                 : TokenStorage.DeserializeToken(token, email);
@@ -358,38 +338,12 @@ public class MauiAuthenticationStateProvider(ILogger<MauiAuthenticationStateProv
         }
     }
 
-    private ClaimsPrincipal CreateAuthenticatedUser(AuthenticatedUserResponse user)
+    private static ClaimsPrincipal CreateAuthenticatedUser(AuthenticatedUserResponse user, string fallbackEmail)
     {
-        var claims = new List<Claim>();
-        var seenClaims = new HashSet<(string Type, string Value)>();
-
-        void AddClaim(string type, string? value)
-        {
-            if (string.IsNullOrWhiteSpace(type) || string.IsNullOrWhiteSpace(value))
-            {
-                return;
-            }
-
-            if (seenClaims.Add((type, value)))
-            {
-                claims.Add(new Claim(type, value));
-            }
-        }
-
-        AddClaim(ClaimTypes.Name, user.Name);
-        AddClaim(ClaimTypes.Email, user.Email);
-
-        foreach (var role in user.Roles)
-        {
-            AddClaim(ClaimTypes.Role, role);
-        }
-
-        foreach (var claim in user.Claims)
-        {
-            AddClaim(claim.Type, claim.Value);
-        }
+        List<Claim> claims = ClaimBuilder.BuildClaimFomUserInfo(user, fallbackEmail);
 
         var identity = new ClaimsIdentity(claims, AuthenticationType);
         return new ClaimsPrincipal(identity);
     }
+
 }

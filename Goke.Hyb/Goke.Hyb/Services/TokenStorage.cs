@@ -55,12 +55,46 @@ namespace Goke.Hyb.Services
             };
         }
 
+        public static AccessTokenInfo? DeserializeToken(LoginResponse? loginToken, string email)
+        {
+            if (loginToken == null || string.IsNullOrEmpty(email))
+            {
+                return null;
+            }
+
+            return new AccessTokenInfo
+            {
+                LoginResponse = loginToken,
+                Email = email,
+                AccessTokenExpiration = DateTime.UtcNow.AddSeconds(loginToken.ExpiresIn)
+            };
+        }
+
         public static async Task<AccessTokenInfo?> SaveTokenToSecureStorageAsync(string token, string email)
         {
             AccessTokenInfo? accessToken = null;
             try
             {
                 accessToken = DeserializeToken(token, email);
+                if (accessToken != null)
+                {
+                    await SecureStorage.SetAsync(StorageKeyName, JsonSerializer.Serialize<AccessTokenInfo>(accessToken));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine("Unable to save AccessTokenInfo to SecureStorage." + ex);
+                accessToken = null;
+            }
+            return accessToken;
+        }
+
+        public static async Task<AccessTokenInfo?> SaveTokenToSecureStorageAsync(LoginResponse? loginToken, string email)
+        {
+            AccessTokenInfo? accessToken = null;
+            try
+            {
+                accessToken = DeserializeToken(loginToken, email);
                 if (accessToken != null)
                 {
                     await SecureStorage.SetAsync(StorageKeyName, JsonSerializer.Serialize<AccessTokenInfo>(accessToken));

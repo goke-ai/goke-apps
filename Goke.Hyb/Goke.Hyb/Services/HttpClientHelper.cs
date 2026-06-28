@@ -9,63 +9,41 @@ namespace Goke.Hyb.Services;
 /// </summary>
 internal class HttpClientHelper
 {
-    //TODO: Place this in AppSettings or Client config file
-    private static string baseUrl = "https://localhost:7187/";
-
-    public static string BaseUrl
-    {
-        get
-        {
-#if DEBUG
-            //See: https://learn.microsoft.com/dotnet/maui/data-cloud/local-web-services
-            //Android Emulator uses 10.0.2.2 to refer to localhost
-            if (DeviceInfo.Platform == DevicePlatform.Android)
-            {
-                baseUrl = baseUrl.Replace("localhost", "10.0.2.2");
-            }
-#endif
-            return baseUrl;
-        }
-    }
-    public static string RegisterUrl => $"{BaseUrl}identity/register";
-    public static string LoginUrl => $"{BaseUrl}identity/login";
-    public static string RefreshUrl => $"{BaseUrl}identity/refresh";
-    public static string MeUrl => $"{BaseUrl}identity/me";
-    public static string WeatherUrl => $"{BaseUrl}api/weather";
-
-
-    public static HttpClient GetHttpClient()
+    public static HttpMessageHandler CreatePlatformMessageHandler()
     {
 #if WINDOWS || MACCATALYST
-        return new HttpClient();
+        return new HttpClientHandler();
 #else
-        return new HttpClient(new HttpsClientHandlerService().GetPlatformMessageHandler());
+        return new HttpsClientHandlerService().PlatformMessageHandler;
 #endif
     }
 }
 
 internal class HttpsClientHandlerService
 {
-    public HttpMessageHandler GetPlatformMessageHandler()
+    public HttpMessageHandler PlatformMessageHandler
     {
+        get
+        {
 #if ANDROID
-        var handler = new Xamarin.Android.Net.AndroidMessageHandler();
-        handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
-        {
-            if (cert != null && cert.Issuer.Equals("CN=localhost"))
-                return true;
-            return errors == System.Net.Security.SslPolicyErrors.None;
-        };
-        return handler;
+            var handler = new Xamarin.Android.Net.AndroidMessageHandler();
+            handler.ServerCertificateCustomValidationCallback = (message, cert, chain, errors) =>
+            {
+                if (cert != null && cert.Issuer.Equals("CN=localhost"))
+                    return true;
+                return errors == System.Net.Security.SslPolicyErrors.None;
+            };
+            return handler;
 #elif IOS
-        var handler = new NSUrlSessionHandler
-        {
-            TrustOverrideForUrl = IsHttpsLocalhost
-        };
-        return handler;
+            var handler = new NSUrlSessionHandler
+            {
+                TrustOverrideForUrl = IsHttpsLocalhost
+            };
+            return handler;
 #else
-        throw new PlatformNotSupportedException("Only Android and iOS supported.");
+            throw new PlatformNotSupportedException("Only Android and iOS supported.");
 #endif
+        }
     }
 
 #if IOS

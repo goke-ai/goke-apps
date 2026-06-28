@@ -3,8 +3,9 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Mvc;
 using Goke.Hyb.Web.Services;
-using System.IdentityModel.Tokens.Jwt;
 using Goke.Core.Models;
+using Goke.Services;
+using Goke.Services.Authentication;
 
 namespace Goke.Hyb.Web.Endpoints;
 
@@ -15,10 +16,10 @@ public static class AccountEndpoints
         endpoints.MapPost("/account/login", async (
             [FromForm] BlazorLoginForm form,
             HttpContext httpContext,
-            RemoteAuthenticationService remoteAuthenticationService) =>
+            AuthApiClient client) =>
         {
             var returnUrl = string.IsNullOrWhiteSpace(form.ReturnUrl) ? "/" : form.ReturnUrl;
-            var loginResponse = await remoteAuthenticationService.LoginAsync(form.Email, form.Password, httpContext.RequestAborted);
+            var loginResponse = await client.LoginAsync(form.Email, form.Password, httpContext.RequestAborted);
 
             if (loginResponse is null)
             {
@@ -30,7 +31,7 @@ public static class AccountEndpoints
             //var claims = BuildClaimsFromAccessToken(loginResponse.AccessToken, form.Email);
 
             // Retrieve the current user information using the access token
-            var currentUser = await remoteAuthenticationService.GetCurrentUserAsync(loginResponse.AccessToken, httpContext.RequestAborted);
+            var currentUser = await client.GetCurrentUserAsync(loginResponse.AccessToken, httpContext.RequestAborted);
 
             if (currentUser is null)
             {
@@ -38,7 +39,7 @@ public static class AccountEndpoints
                 return Results.LocalRedirect(loginUrl);
             }
 
-            var claims = BuildClaimsFromUserInfo(currentUser, form.Email);
+            var claims = ClaimBuilder.BuildClaimFomUserInfo(currentUser, form.Email);
 
             // Create authentication properties with the access token and refresh token
             var authenticationProperties = new AuthenticationProperties
@@ -68,7 +69,7 @@ public static class AccountEndpoints
         endpoints.MapPost("/account/register", async (
             [FromForm] BlazorRegisterForm form,
             HttpContext httpContext,
-            RemoteAuthenticationService remoteAuthenticationService) =>
+            AuthApiClient client) =>
         {
             var returnUrl = string.IsNullOrWhiteSpace(form.ReturnUrl) ? "/" : form.ReturnUrl;
 
@@ -84,7 +85,7 @@ public static class AccountEndpoints
                 return Results.LocalRedirect(registerUrl);
             }
 
-            var registrationError = await remoteAuthenticationService.RegisterAsync(form.Email, form.Password, httpContext.RequestAborted);
+            var registrationError = await client.RegisterAsync(form.Email, form.Password, httpContext.RequestAborted);
             if (!string.IsNullOrWhiteSpace(registrationError))
             {
                 var registerUrl = $"/register?error={Uri.EscapeDataString(registrationError)}&returnUrl={Uri.EscapeDataString(returnUrl)}";
@@ -104,86 +105,4 @@ public static class AccountEndpoints
         return endpoints;
     }
 
-    private static List<Claim> BuildClaimsFromAccessToken(string accessToken, string fallbackEmail)
-    {
-        var claims = new List<Claim>();
-
-        var handler = new JwtSecurityTokenHandler();
-        if (handler.CanReadToken(accessToken))
-        {
-            var jwt = handler.ReadJwtToken(accessToken);
-
-            foreach (var claim in jwt.Claims)
-            {
-                if (claim.Type is "role" or "roles")
-                {
-                    claims.Add(new Claim(ClaimTypes.Role, claim.Value));
-                    continue;
-                }
-
-                claims.Add(claim);
-            }
-        }
-
-        if (!claims.Any(c => c.Type == ClaimTypes.Name) && !string.IsNullOrWhiteSpace(fallbackEmail))
-        {
-            claims.Add(new Claim(ClaimTypes.Name, fallbackEmail));
-        }
-
-        if (!claims.Any(c => c.Type == ClaimTypes.Email) && !string.IsNullOrWhiteSpace(fallbackEmail))
-        {
-            claims.Add(new Claim(ClaimTypes.Email, fallbackEmail));
-        }
-
-        return claims;
-    }
-
-    private static List<Claim> BuildClaimsFromUserInfo(AuthenticatedUserResponse user, string fallbackEmail)
-    {
-        var claims = new List<Claim>();
-
-        if (!string.IsNullOrWhiteSpace(user.UserId))
-        {
-            claims.Add(new Claim(ClaimTypes.NameIdentifier, user.UserId));
-        }
-
-        if (!string.IsNullOrWhiteSpace(user.Name))
-        {
-            claims.Add(new Claim(ClaimTypes.Name, user.Name));
-        }
-        else if (!string.IsNullOrWhiteSpace(fallbackEmail))
-        {
-            claims.Add(new Claim(ClaimTypes.Name, fallbackEmail));
-        }
-
-        if (!string.IsNullOrWhiteSpace(user.Email))
-        {
-            claims.Add(new Claim(ClaimTypes.Email, user.Email));
-        }
-        else if (!string.IsNullOrWhiteSpace(fallbackEmail))
-        {
-            claims.Add(new Claim(ClaimTypes.Email, fallbackEmail));
-        }
-
-        foreach (var role in user.Roles.Where(r => !string.IsNullOrWhiteSpace(r)).Distinct(StringComparer.OrdinalIgnoreCase))
-        {
-            claims.Add(new Claim(ClaimTypes.Role, role));
-        }
-
-        foreach (var claim in user.Claims
-            .Where(c => !string.IsNullOrWhiteSpace(c.Type) && !string.IsNullOrWhiteSpace(c.Value)))
-        {
-            var alreadyExists = claims.Any(existing =>
-                string.Equals(existing.Type, claim.Type, StringComparison.Ordinal) &&
-                string.Equals(existing.Value, claim.Value, StringComparison.Ordinal));
-
-            if (!alreadyExists)
-            {
-                claims.Add(new Claim(claim.Type, claim.Value));
-            }
-        }
-
-
-        return claims;
-    }
 }
