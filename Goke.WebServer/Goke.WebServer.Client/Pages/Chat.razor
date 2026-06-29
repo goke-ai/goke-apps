@@ -1,0 +1,158 @@
+﻿@page "/chat"
+@rendermode InteractiveWebAssembly
+@using Microsoft.AspNetCore.SignalR.Client
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+
+<PageTitle>Chat</PageTitle>
+
+<div>@myConnectionId</div>
+<div>@myUserId</div>
+<div class="form-group">
+    <label>
+        User:
+        <input @bind="userInput" disabled="@IsRegistered" />
+    </label>
+    <button @onclick="Register" disabled="@(!IsConnected || IsRegistered)">Register</button>
+</div>
+
+@if (IsRegistered)
+{
+    <div class="form-group">
+        <label>
+            To:
+            <input @bind="toUserInput" />
+        </label>
+    </div>
+    <div class="form-group">
+        <label>
+            Message:
+            <input @bind="messageInput" size="50" />
+        </label>
+    </div>
+    <button @onclick="Send" disabled="@(!IsConnected)">Send</button>
+    <button @onclick="SendPrivate" disabled="@(!IsConnected)">Send Private</button>
+}
+else
+{
+    <p>Please register to send messages.</p>
+}
+
+
+
+<hr>
+
+<ul id="messagesList">
+    @foreach (var message in messages)
+    {
+        <li>@message</li>
+    }
+</ul>
+
+@code {
+    private HubConnection? hubConnection;
+    private string? myConnectionId;
+    private string? myUserId;
+
+    private List<string> messages = [];
+    private string? userInput;
+    private string? toUserInput;
+    private string? messageInput;
+
+    public bool IsConnected => hubConnection?.State == HubConnectionState.Connected;
+    public bool IsRegistered => !string.IsNullOrEmpty(myUserId);
+
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/chathub"))
+            .Build();
+
+
+        hubConnection.On<string>("ConnectionIdAssigned", connectionId =>
+        {
+            myConnectionId = connectionId;
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<string, string>("UserIdAssigned", (userId, connectionId) =>
+        {
+            myUserId = userId;
+            myConnectionId = connectionId;
+
+            var encodedMsg = $"User ID assigned: {userId}, Connection ID: {connectionId}";
+            messages.Add(encodedMsg);
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<string, string, string>("ReceiveMessage", (connectionId, user, message) =>
+        {
+            var encodedMsg = $"{connectionId} - {user}: {message}";
+            messages.Add(encodedMsg);
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<string, string, string>("ReceivePrivateMessage", (connectionId, user, message) =>
+                {
+                    var encodedMsg = $"{connectionId} - {user} [private]: {message}";
+                    messages.Add(encodedMsg);
+                    InvokeAsync(StateHasChanged);
+                });
+
+        hubConnection.On<string>("SystemMessage", (message) =>
+        {
+            var encodedMsg = $"System: {message}";
+            messages.Add(encodedMsg);
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<string, string, string, string>("ReceiveGroupMessage", (groupName, connectionId, user, message) =>
+        {
+            var encodedMsg = $"Group {groupName} - {connectionId} - {user}: {message}";
+            messages.Add(encodedMsg);
+            InvokeAsync(StateHasChanged);
+        });            
+
+        await hubConnection.StartAsync();
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task Register()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.SendAsync("RegisterUser", userInput);
+        }
+    }
+
+    private async Task Send()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.SendAsync("SendMessage", userInput, messageInput);
+        }
+    }
+
+    private async Task SendPrivate()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.SendAsync("SendPrivateMessage", userInput, toUserInput, messageInput);
+        }
+    }
+
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+}
