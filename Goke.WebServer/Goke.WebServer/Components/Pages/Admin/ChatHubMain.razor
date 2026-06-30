@@ -1,0 +1,71 @@
+﻿@page "/chathubmain"
+@using Microsoft.AspNetCore.Authorization
+@using Goke.Core.Models
+@using Goke.WebServer.Services
+
+@attribute [Authorize(Roles = "Administrators")]
+@rendermode InteractiveServer
+@inject IChatAuditService AuditService
+@implements IDisposable
+
+<PageTitle>Chat Hub Main</PageTitle>
+
+<h3>All Messages</h3>
+
+<p>Total: @messages.Count</p>
+
+<table class="table">
+    <thead>
+        <tr>
+            <th>Time</th>
+            <th>Type</th>
+            <th>Name</th>
+            <th>From</th>
+            <th>User ID</th>
+            <th>Authenticated</th>
+            <th>To</th>
+            <th>Group</th>
+            <th>Message</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var item in messages.OrderByDescending(x => x.SentUtc))
+        {
+            <tr>
+                <td>@item.SentUtc.ToLocalTime()</td>
+                <td>@item.Type</td>
+                <td>@item.DisplayName</td>
+                <td>@item.FromConnectionId</td>
+                <td>@item.FromUserId</td>
+                <td>@item.FromIsAuthenticated</td>
+                <td>@item.ToConnectionId</td>
+                <td>@item.GroupName</td>
+                <td>@item.Message</td>
+            </tr>
+        }
+    </tbody>
+</table>
+
+@code {
+    private List<ChatLogEntry> messages = [];
+
+    protected override async Task OnInitializedAsync()
+    {
+        messages = (await AuditService.GetAllAsync())
+            .OrderByDescending(x => x.SentUtc)
+            .ToList();
+
+        AuditService.MessageLogged += OnMessageLogged;
+    }
+
+    private void OnMessageLogged(ChatLogEntry entry)
+    {
+        messages.Insert(0, entry);
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        AuditService.MessageLogged -= OnMessageLogged;
+    }
+}

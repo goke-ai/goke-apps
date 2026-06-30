@@ -6,9 +6,11 @@ using Goke.WebServer.Components;
 using Goke.WebServer.Components.Account;
 using Goke.WebServer.Data;
 using Goke.WebServer.Endpoints;
+using Goke.WebServer.Hubs;
 using Goke.WebServer.Services;
 using Microsoft.AspNetCore.Components.Authorization;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.ResponseCompression;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
 
@@ -75,16 +77,29 @@ builder.Services.AddSingleton<AdminActivityLog>();
 builder.Services.AddScoped<AdminStatusMessageStore>();
 builder.Services.AddScoped<RoleAdministrationService>();
 builder.Services.AddSingleton<IFormFactor, FormFactor>();
+builder.Services.AddSingleton<IChatAuditService, InMemoryChatAuditService>();
 
 // Register the IdentityEmailSender as the implementation of IEmailSender<ApplicationUser>.
 //builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityNoOpEmailSender>();
 builder.Services.AddSingleton<IEmailSender<ApplicationUser>, IdentityEmailSender>();
+
+// SignalR support for real-time communication.
+builder.Services.AddSignalR();
+
+builder.Services.AddResponseCompression(opts =>
+{
+    opts.MimeTypes = ResponseCompressionDefaults.MimeTypes.Concat(
+        ["application/octet-stream"]);
+});
 
 // Add Swagger/OpenAPI support for API documentation and testing.
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 var app = builder.Build();
+
+// Enable response compression for improved performance.
+app.UseResponseCompression();
 
 // Seed the database with test data if needed.
 await ApplicationSeeder.SeedAllAsync(app, app.Environment.IsDevelopment());
@@ -122,6 +137,9 @@ app.MapIdentityEndpoints();
 
 // Add additional endpoints required by the Identity /Account Razor components.
 app.MapAdditionalIdentityEndpoints();
+
+// Map the SignalR hub for real-time communication.
+app.MapHub<ChatHub>("/chathub");
 
 
 app.Run();

@@ -1,0 +1,757 @@
+﻿@page "/chat"
+@rendermode InteractiveWebAssembly
+@implements IAsyncDisposable
+
+@using Microsoft.AspNetCore.SignalR.Client
+@using System.Security.Claims
+@using Goke.Core.Models
+
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthenticationStateProvider
+
+<PageTitle>Chat</PageTitle>
+
+<h1>Chat</h1>
+
+<div class="mb-3">
+    <strong>Status:</strong> @connectionState
+</div>
+
+<AuthorizeView>
+    <Authorized>
+        <div class="alert alert-success py-2">
+            Signed in as <strong>@currentUserName</strong>
+        </div>
+    </Authorized>
+    <NotAuthorized>
+        <div class="alert alert-secondary py-2">
+            Anonymous chat
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">Guest name</label>
+            <div class="input-group">
+                <input class="form-control" @bind="guestAlias" />
+                <button class="btn btn-outline-primary" @onclick="SaveGuestAlias">Set</button>
+            </div>
+        </div>
+    </NotAuthorized>
+</AuthorizeView>
+
+<div class="row g-4">
+    <div class="col-12 col-lg-6">
+        <div class="card">
+            <div class="card-header">Public Chat</div>
+            <div class="card-body">
+                <div class="border rounded p-2 mb-3" style="height:300px; overflow:auto;">
+                    @foreach (var item in publicMessages)
+                    {
+                        <div class="mb-1">
+                            <strong>@item.Author</strong>: @item.Text
+                        </div>
+                    }
+                </div>
+
+                <div class="input-group">
+                    <input class="form-control" @bind="publicMessage" @bind:event="oninput" placeholder="Type a public message" />
+                    <button class="btn btn-primary" @onclick="SendPublicMessage" disabled="@(!isConnected || string.IsNullOrWhiteSpace(publicMessage))">
+                        Send
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+        <div class="card">
+            <div class="card-header">Direct Message</div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">Target authenticated user id</label>
+                    <div class="input-group">
+                        <select class="form-select" @bind="privateToUserId" disabled="@(!isConnected || !isAuthenticated || loadingUserOptions)">
+                            <option value="">Select a user</option>
+                            @foreach (var user in availableUsers)
+                            {
+                                <option value="@user.UserId">@user.DisplayName (@user.UserId)</option>
+                            }
+                        </select>
+                        <button class="btn btn-outline-secondary"
+                                @onclick="LoadAvailableUsersAsync"
+                                disabled="@(!isConnected || !isAuthenticated || loadingUserOptions)">
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label">Target connection id</label>
+                    <div class="input-group">
+                        <select class="form-select" @bind="privateToConnectionId" disabled="@(!isConnected || loadingConnectionOptions)">
+                            <option value="">Select a connected client</option>
+                            @foreach (var client in connectedClients)
+                            {
+                                <option value="@client.ConnectionId">@client.DisplayName (@client.ConnectionId)</option>
+                            }
+                        </select>
+                        <button class="btn btn-outline-secondary"
+                                @onclick="LoadConnectedClientsAsync"
+                                disabled="@(!isConnected || loadingConnectionOptions)">
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label">Target alias</label>
+                    <div class="input-group">
+                        <select class="form-select" @bind="privateToAlias" disabled="@(!isConnected || loadingAliasOptions)">
+                            <option value="">Select an alias</option>
+                            @foreach (var alias in availableAliases)
+                            {
+                                <option value="@alias.Alias">@alias.Alias (@alias.DisplayName)</option>
+                            }
+                        </select>
+                        <button class="btn btn-outline-secondary"
+                                @onclick="LoadAvailableAliasesAsync"
+                                disabled="@(!isConnected || loadingAliasOptions)">
+                            Refresh
+                        </button>
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label">Message</label>
+                    <input class="form-control" @bind="privateMessage" @bind:event="oninput" />
+                </div>
+
+                <div class="d-flex gap-2 flex-wrap">
+                    <button class="btn btn-outline-primary"
+                            @onclick="SendPrivateToUser"
+                            disabled="@(!isConnected || !isAuthenticated || string.IsNullOrWhiteSpace(privateToUserId) || string.IsNullOrWhiteSpace(privateMessage))">
+                        Send to user
+                    </button>
+
+                    <button class="btn btn-outline-secondary"
+                            @onclick="SendPrivateToConnection"
+                            disabled="@(!isConnected || string.IsNullOrWhiteSpace(privateToConnectionId) || string.IsNullOrWhiteSpace(privateMessage))">
+                        Send to connection
+                    </button>
+
+                    <button class="btn btn-outline-success"
+                            @onclick="SendPrivateToAlias"
+                            disabled="@(!isConnected || string.IsNullOrWhiteSpace(privateToAlias) || string.IsNullOrWhiteSpace(privateMessage))">
+                        Send to alias
+                    </button>
+
+                </div>
+
+                <hr />
+
+                <div class="border rounded p-2" style="height:220px; overflow:auto;">
+                    @foreach (var item in privateMessages)
+                    {
+                        <div class="mb-1">
+                            <strong>@item.Author</strong>: @item.Text
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+        <div class="card">
+            <div class="card-header">Public Group</div>
+            <div class="card-body">
+                <div class="mb-2">
+                    <label class="form-label">Group name</label>
+                    <input class="form-control" @bind="publicGroupName" />
+                </div>
+
+                <div class="d-flex gap-2 mb-3">
+                    <button class="btn btn-outline-primary" @onclick="JoinPublicGroup" disabled="@(!isConnected || string.IsNullOrWhiteSpace(publicGroupName))">
+                        Join
+                    </button>
+                    <button class="btn btn-outline-secondary" @onclick="LeavePublicGroup" disabled="@(!isConnected || string.IsNullOrWhiteSpace(publicGroupName))">
+                        Leave
+                    </button>
+                </div>
+
+                <div class="mb-2">
+                    <label class="form-label">Group message</label>
+                    <input class="form-control" @bind="publicGroupMessage" @bind:event="oninput" />
+                </div>
+
+                <button class="btn btn-primary mb-3"
+                        @onclick="SendGroupMessage"
+                        disabled="@(!isConnected || string.IsNullOrWhiteSpace(publicGroupName) || string.IsNullOrWhiteSpace(publicGroupMessage))">
+                    Send group message
+                </button>
+
+                <div class="border rounded p-2" style="height:220px; overflow:auto;">
+                    @foreach (var item in groupMessages.Where(x => x.GroupName == publicGroupName))
+                    {
+                        <div class="mb-1">
+                            <span class="text-muted">[@item.GroupName]</span>
+                            <strong>@item.Author</strong>: @item.Text
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-12 col-lg-6">
+        <div class="card">
+            <div class="card-header">Private Group</div>
+            <div class="card-body">
+                <AuthorizeView>
+                    <Authorized>
+                        <div class="mb-2">
+                            <label class="form-label">Private group name</label>
+                            <input class="form-control" @bind="privateGroupName" />
+                        </div>
+
+                        <div class="d-flex gap-2 flex-wrap mb-3">
+                            <button class="btn btn-outline-primary" @onclick="CreatePrivateGroup" disabled="@(!isConnected || string.IsNullOrWhiteSpace(privateGroupName))">
+                                Create
+                            </button>
+                            <button class="btn btn-outline-secondary" @onclick="JoinPrivateGroup" disabled="@(!isConnected || string.IsNullOrWhiteSpace(privateGroupName))">
+                                Join
+                            </button>
+                        </div>
+
+                        <div class="mb-2">
+                            <label class="form-label">Add user id to private group</label>
+                            <div class="input-group">
+                                <input class="form-control" @bind="privateGroupTargetUserId" />
+                                <button class="btn btn-outline-dark"
+                                        @onclick="AddUserToPrivateGroup"
+                                        disabled="@(!isConnected || string.IsNullOrWhiteSpace(privateGroupName) || string.IsNullOrWhiteSpace(privateGroupTargetUserId))">
+                                    Add user
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="mb-2">
+                            <label class="form-label">Private group message</label>
+                            <input class="form-control" @bind="privateGroupMessage" @bind:event="oninput" />
+                        </div>
+
+                        <button class="btn btn-primary mb-3"
+                                @onclick="SendPrivateGroupMessage"
+                                disabled="@(!isConnected || string.IsNullOrWhiteSpace(privateGroupName) || string.IsNullOrWhiteSpace(privateGroupMessage))">
+                            Send private group message
+                        </button>
+
+                        <div class="border rounded p-2" style="height:220px; overflow:auto;">
+                            @foreach (var item in privateGroupMessages.Where(x => x.GroupName == privateGroupName))
+                            {
+                                <div class="mb-1">
+                                    <span class="text-muted">[@item.GroupName]</span>
+                                    <strong>@item.Author</strong>: @item.Text
+                                </div>
+                            }
+                        </div>
+                    </Authorized>
+                    <NotAuthorized>
+                        <div class="alert alert-warning py-2 mb-0">
+                            Sign in to use private groups.
+                        </div>
+                    </NotAuthorized>
+                </AuthorizeView>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div class="card mt-4">
+    <div class="card-header">System</div>
+    <div class="card-body">
+        <div class="border rounded p-2" style="height:180px; overflow:auto;">
+            @foreach (var item in systemMessages)
+            {
+                <div>@item</div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private HubConnection? hubConnection;
+
+    private bool isConnected;
+    private bool isAuthenticated;
+    private string connectionState = "Disconnected";
+
+    private string currentUserName = "guest";
+    private string? currentUserId;
+    private string? currentConnectionId;
+
+    private string guestAlias = "guest";
+
+    private string publicMessage = string.Empty;
+
+    private string privateToUserId = string.Empty;
+    private string privateToConnectionId = string.Empty;
+    private string privateToAlias = string.Empty;
+    private string privateMessage = string.Empty;
+    private bool loadingUserOptions;
+    private bool loadingConnectionOptions;
+    private bool loadingAliasOptions;
+
+
+    private string publicGroupName = "general";
+    private string publicGroupMessage = string.Empty;
+
+    private string privateGroupName = "admins";
+    private string privateGroupTargetUserId = string.Empty;
+    private string privateGroupMessage = string.Empty;
+
+    private readonly List<ChatItem> publicMessages = [];
+    private readonly List<ChatItem> privateMessages = [];
+    private readonly List<GroupChatItem> groupMessages = [];
+    private readonly List<GroupChatItem> privateGroupMessages = [];
+    private readonly List<ChatUserInfo> availableUsers = [];
+    private readonly List<string> systemMessages = [];
+    private readonly List<ConnectedClientInfo> connectedClients = [];
+    private readonly List<AliasInfo> availableAliases = [];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        var authState = await AuthenticationStateProvider.GetAuthenticationStateAsync();
+        var user = authState.User;
+
+        isAuthenticated = user.Identity?.IsAuthenticated == true;
+        currentUserName = user.Identity?.Name ?? "guest";
+        currentUserId =
+            user.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? user.FindFirst("sub")?.Value;
+
+        hubConnection = new HubConnectionBuilder()
+            .WithUrl(Navigation.ToAbsoluteUri("/chathub"))
+            .WithAutomaticReconnect()
+            .Build();
+
+        hubConnection.Reconnecting += error =>
+        {
+            isConnected = false;
+            connectionState = "Reconnecting...";
+            AddSystemMessage($"Reconnecting: {error?.Message}");
+            return InvokeAsync(StateHasChanged);
+        };
+
+        hubConnection.Reconnected += connectionId =>
+        {
+            isConnected = true;
+            connectionState = "Connected";
+            AddSystemMessage($"Reconnected: {connectionId}");
+            return InvokeAsync(StateHasChanged);
+        };
+
+        hubConnection.Closed += error =>
+        {
+            isConnected = false;
+            connectionState = "Disconnected";
+            AddSystemMessage($"Closed: {error?.Message}");
+            return InvokeAsync(StateHasChanged);
+        };
+
+        hubConnection.On<string>("ConnectionIdAssigned", connectionId =>
+        {
+            currentConnectionId = connectionId;
+            AddSystemMessage($"Connection id: {connectionId}");
+            _ = LoadConnectedClientsAsync();
+            _ = LoadAvailableAliasesAsync();
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<string, string, bool>("SenderAssigned", (senderId, displayName, authenticated) =>
+        {
+            currentUserId = senderId;
+            currentUserName = displayName;
+            isAuthenticated = authenticated;
+            AddSystemMessage($"Sender: {displayName} ({senderId})");
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<string>("SystemMessage", message =>
+        {
+            AddSystemMessage(message);
+            _ = LoadConnectedClientsAsync();
+            _ = LoadAvailableAliasesAsync();
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<string, string, string, string>("ReceivePublicMessage", (connectionId, senderId, senderName, message) =>
+        {
+            publicMessages.Add(new ChatItem(senderId, senderName, message));
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<string, string, string, string>("ReceivePrivateMessage", (connectionId, senderId, senderName, message) =>
+        {
+            privateMessages.Add(new ChatItem(senderId, senderName, message));
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<string, string, string, string, string>("ReceiveGroupMessage", (groupName, connectionId, senderId, senderName, message) =>
+        {
+            groupMessages.Add(new GroupChatItem(groupName, senderId, senderName, message));
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<string>("PrivateGroupCreated", groupName =>
+        {
+            AddSystemMessage($"Private group created: {groupName}");
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<string, string, string>("AddedToPrivateGroup", (groupName, senderId, senderName) =>
+        {
+            AddSystemMessage($"{senderName} added you to private group '{groupName}'.");
+            InvokeAsync(StateHasChanged);
+        });
+
+        hubConnection.On<string, string, string, string, string>("ReceivePrivateGroupMessage", (groupName, connectionId, senderId, senderName, message) =>
+        {
+            privateGroupMessages.Add(new GroupChatItem(groupName, senderId, senderName, message));
+            InvokeAsync(StateHasChanged);
+        });
+
+              
+        await hubConnection.StartAsync();
+        isConnected = true;
+        connectionState = "Connected";
+
+        await LoadHistoryAsync();
+    }
+
+    private async Task LoadHistoryAsync()
+    {
+        await LoadPublicHistoryAsync();
+        await LoadPrivateHistoryAsync();
+        await LoadPublicGroupHistoryAsync();
+        await LoadConnectedClientsAsync();
+        await LoadAvailableAliasesAsync();
+
+        if (isAuthenticated)
+        {
+            await LoadAvailableUsersAsync();
+            await LoadPrivateGroupHistoryAsync();
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadPublicHistoryAsync()
+    {
+        if (hubConnection is null)
+        {
+            return;
+        }
+
+        var history = await hubConnection.InvokeAsync<List<ChatLogEntry>>("GetRecentPublicMessages", 50);
+
+        publicMessages.Clear();
+        publicMessages.AddRange(history.Select(ToChatItem));
+    }
+
+    private async Task LoadPrivateHistoryAsync()
+    {
+        if (hubConnection is null)
+        {
+            return;
+        }
+
+        List<ChatLogEntry> history = isAuthenticated
+            ? await hubConnection.InvokeAsync<List<ChatLogEntry>>("GetRecentPrivateMessages", 50)
+            : await hubConnection.InvokeAsync<List<ChatLogEntry>>("GetRecentConnectionPrivateMessages", 50);
+
+        privateMessages.Clear();
+        privateMessages.AddRange(history.Select(ToChatItem));
+    }
+
+    private async Task LoadPublicGroupHistoryAsync()
+    {
+        if (hubConnection is null || string.IsNullOrWhiteSpace(publicGroupName))
+        {
+            return;
+        }
+
+        var history = await hubConnection.InvokeAsync<List<ChatLogEntry>>("GetRecentGroupMessages", publicGroupName, 50);
+
+        groupMessages.Clear();
+        groupMessages.AddRange(history.Select(ToGroupChatItem));
+    }
+
+    private async Task LoadPrivateGroupHistoryAsync()
+    {
+        if (hubConnection is null || !isAuthenticated || string.IsNullOrWhiteSpace(privateGroupName))
+        {
+            return;
+        }
+
+        var history = await hubConnection.InvokeAsync<List<ChatLogEntry>>("GetRecentPrivateGroupMessages", privateGroupName, 50);
+
+        privateGroupMessages.Clear();
+        privateGroupMessages.AddRange(history.Select(ToGroupChatItem));
+    }
+
+    private async Task LoadAvailableUsersAsync()
+    {
+        if (hubConnection is null || !isAuthenticated)
+        {
+            availableUsers.Clear();
+            privateToUserId = string.Empty;
+            return;
+        }
+
+        loadingUserOptions = true;
+
+        try
+        {
+            var users = await hubConnection.InvokeAsync<List<ChatUserInfo>>("GetAvailableUsers");
+
+            availableUsers.Clear();
+            availableUsers.AddRange(users);
+
+            if (!availableUsers.Any(x => x.UserId == privateToUserId))
+            {
+                privateToUserId = string.Empty;
+            }
+        }
+        finally
+        {
+            loadingUserOptions = false;
+        }
+    }
+
+    private async Task LoadConnectedClientsAsync()
+    {
+        if (hubConnection is null)
+        {
+            connectedClients.Clear();
+            privateToConnectionId = string.Empty;
+            return;
+        }
+
+        loadingConnectionOptions = true;
+
+        try
+        {
+            var clients = await hubConnection.InvokeAsync<List<ConnectedClientInfo>>("GetConnectedClients");
+
+            connectedClients.Clear();
+            connectedClients.AddRange(clients);
+
+            if (!connectedClients.Any(x => x.ConnectionId == privateToConnectionId))
+            {
+                privateToConnectionId = string.Empty;
+            }
+        }
+        finally
+        {
+            loadingConnectionOptions = false;
+        }
+    }
+
+    private async Task LoadAvailableAliasesAsync()
+    {
+        if (hubConnection is null)
+        {
+            availableAliases.Clear();
+            privateToAlias = string.Empty;
+            return;
+        }
+
+        loadingAliasOptions = true;
+
+        try
+        {
+            var aliases = await hubConnection.InvokeAsync<List<AliasInfo>>("GetAvailableAliases");
+
+            availableAliases.Clear();
+            availableAliases.AddRange(aliases);
+
+            if (!availableAliases.Any(x => string.Equals(x.Alias, privateToAlias, StringComparison.OrdinalIgnoreCase)))
+            {
+                privateToAlias = string.Empty;
+            }
+        }
+        finally
+        {
+            loadingAliasOptions = false;
+        }
+    }
+
+    private static ChatItem ToChatItem(ChatLogEntry entry) =>
+        new(
+            entry.FromUserId ?? entry.FromConnectionId,
+            entry.DisplayName,
+            entry.Message);
+
+    private static GroupChatItem ToGroupChatItem(ChatLogEntry entry) =>
+        new(
+            entry.GroupName ?? string.Empty,
+            entry.FromUserId ?? entry.FromConnectionId,
+            entry.DisplayName,
+            entry.Message);
+
+
+    //
+
+    private async Task SaveGuestAlias()
+    {
+        if (hubConnection is null || isAuthenticated || string.IsNullOrWhiteSpace(guestAlias))
+        {
+            return;
+        }
+
+        await hubConnection.InvokeAsync("SetAlias", guestAlias);
+        AddSystemMessage($"Guest alias set to '{guestAlias}'.");
+    }
+
+    private async Task SendPublicMessage()
+    {
+        if (hubConnection is null || string.IsNullOrWhiteSpace(publicMessage))
+        {
+            return;
+        }
+
+        await hubConnection.InvokeAsync("SendPublicMessage", publicMessage);
+        publicMessage = string.Empty;
+    }
+
+    private async Task SendPrivateToUser()
+    {
+        if (hubConnection is null || string.IsNullOrWhiteSpace(privateToUserId) || string.IsNullOrWhiteSpace(privateMessage))
+        {
+            return;
+        }
+
+        await hubConnection.InvokeAsync("SendPrivateToUser", privateToUserId, privateMessage);
+        privateMessage = string.Empty;
+    }
+
+    private async Task SendPrivateToConnection()
+    {
+        if (hubConnection is null || string.IsNullOrWhiteSpace(privateToConnectionId) || string.IsNullOrWhiteSpace(privateMessage))
+        {
+            return;
+        }
+
+        await hubConnection.InvokeAsync("SendPrivateToConnection", privateToConnectionId, privateMessage);
+        privateMessage = string.Empty;
+    }
+
+    private async Task SendPrivateToAlias()
+    {
+        if (hubConnection is null || string.IsNullOrWhiteSpace(privateToAlias) || string.IsNullOrWhiteSpace(privateMessage))
+        {
+            return;
+        }
+
+        await hubConnection.InvokeAsync("SendPrivateToAlias", privateToAlias, privateMessage);
+        privateMessage = string.Empty;
+    }
+
+    private async Task JoinPublicGroup()
+    {
+        if (hubConnection is null || string.IsNullOrWhiteSpace(publicGroupName))
+        {
+            return;
+        }
+
+        await hubConnection.InvokeAsync("JoinPublicGroup", publicGroupName);
+        await LoadPublicGroupHistoryAsync();
+    }
+
+    private async Task LeavePublicGroup()
+    {
+        if (hubConnection is null || string.IsNullOrWhiteSpace(publicGroupName))
+        {
+            return;
+        }
+
+        await hubConnection.InvokeAsync("LeavePublicGroup", publicGroupName);
+    }
+
+    private async Task SendGroupMessage()
+    {
+        if (hubConnection is null || string.IsNullOrWhiteSpace(publicGroupName) || string.IsNullOrWhiteSpace(publicGroupMessage))
+        {
+            return;
+        }
+
+        await hubConnection.InvokeAsync("SendGroupMessage", publicGroupName, publicGroupMessage);
+        publicGroupMessage = string.Empty;
+    }
+
+    private async Task CreatePrivateGroup()
+    {
+        if (hubConnection is null || string.IsNullOrWhiteSpace(privateGroupName))
+        {
+            return;
+        }
+
+        await hubConnection.InvokeAsync("CreatePrivateGroup", privateGroupName);
+        await LoadPrivateGroupHistoryAsync();
+    }
+
+    private async Task AddUserToPrivateGroup()
+    {
+        if (hubConnection is null || string.IsNullOrWhiteSpace(privateGroupName) || string.IsNullOrWhiteSpace(privateGroupTargetUserId))
+        {
+            return;
+        }
+
+        await hubConnection.InvokeAsync("AddUserToPrivateGroup", privateGroupName, privateGroupTargetUserId);
+        privateGroupTargetUserId = string.Empty;
+    }
+
+    private async Task JoinPrivateGroup()
+    {
+        if (hubConnection is null || string.IsNullOrWhiteSpace(privateGroupName))
+        {
+            return;
+        }
+
+        await hubConnection.InvokeAsync("JoinPrivateGroup", privateGroupName);
+        await LoadPrivateGroupHistoryAsync();
+    }
+
+    private async Task SendPrivateGroupMessage()
+    {
+        if (hubConnection is null || string.IsNullOrWhiteSpace(privateGroupName) || string.IsNullOrWhiteSpace(privateGroupMessage))
+        {
+            return;
+        }
+
+        await hubConnection.InvokeAsync("SendPrivateGroupMessage", privateGroupName, privateGroupMessage);
+        privateGroupMessage = string.Empty;
+    }
+
+    private void AddSystemMessage(string message)
+    {
+        systemMessages.Add(message);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (hubConnection is not null)
+        {
+            await hubConnection.DisposeAsync();
+        }
+    }
+
+    private sealed record ChatItem(string SenderId, string Author, string Text);
+    private sealed record GroupChatItem(string GroupName, string SenderId, string Author, string Text);
+
+}
